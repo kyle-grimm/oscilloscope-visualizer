@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Oscilloscope Visualizer</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <div id="stage">
+    <canvas id="scope" width="900" height="900"></canvas>
+  </div>
+
+  <div id="panel">
+    <div class="panel-header">
+      <h1>Oscilloscope Visualizer</h1>
+      <div class="header-actions">
+        <button id="muteBtn" class="wide-btn ghost">Mute Tone</button>
+        <button id="pauseBtn" class="wide-btn ghost">Pause Signal</button>
+        <button id="freezeBtn" class="wide-btn">Freeze</button>
+        <button id="resetBtn" class="wide-btn ghost">Reset</button>
+      </div>
+    </div>
+
+    <fieldset class="group" id="sourceDisplaySection">
+      <legend>Source &amp; Display</legend>
+      <div class="row">
+        <label for="sourceSelect">Input</label>
+        <div id="sourceSelect" class="knob-select"></div>
+      </div>
+      <div class="row" id="fileRow" hidden>
+        <label for="fileInput">File</label>
+        <input type="file" id="fileInput" accept="audio/*">
+      </div>
+      <div class="row" id="liveStatusRow" hidden>
+        <span id="liveStatus" class="hint">Requesting access...</span>
+      </div>
+      <div class="row">
+        <label for="modeSelect">Mode</label>
+        <div id="modeSelect" class="knob-select"></div>
+      </div>
+      <div class="row checks">
+        <label class="check"><input type="checkbox" id="showGrid" checked> Grid</label>
+        <label class="check"><input type="checkbox" id="glow" checked> Glow</label>
+      </div>
+      <div class="subhead">Hue</div>
+      <div id="hueParams"></div>
+      <div class="subhead">Spectrograph</div>
+      <canvas id="spectroCanvas" width="280" height="90"></canvas>
+    </fieldset>
+
+    <fieldset class="group" id="presetsSection">
+      <legend>Presets</legend>
+      <div class="row preset-actions">
+        <button id="savePresetBtn" class="wide-btn ghost" type="button">Save</button>
+        <button id="randomizeBtn" class="wide-btn ghost" type="button">Randomize</button>
+      </div>
+      <div id="presetList" class="preset-list"></div>
+    </fieldset>
+
+    <div id="compactParams" class="section"></div>
+
+    <div id="toneGroup" class="section"></div>
+
+    <div id="effectsParams" class="section"></div>
+
+    <div id="displayParams" class="section"></div>
+  </div>
+</div>
+<script src="script.js"></script>
+</body>
+</html>

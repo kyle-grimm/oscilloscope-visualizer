@@ -1,0 +1,566 @@
+/* ---------------------------------------------------------------
+   Moog Grandmother inspired panel: a cream control surface, Moog-
+   red-orange accent, knurled dark knobs with a cream pointer line.
+   The scope and panel sit flush against each other with no outer
+   frame - see #stage/#panel's shared, borderless seam.
+   --------------------------------------------------------------- */
+:root {
+  --panel: #e7e0cd;
+  --panel-card: #f2ecdd;
+  --panel-border: #c3b89c;
+  --ink: #2b2620;
+  --ink-dim: #7a7160;
+  --orange: #d8481f;
+  --orange-bright: #f2793f;
+  --knob: #1c1a17;
+  --knob-face: #4a4844;
+  --knob-indicator: #f2ecdd;
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: #000;
+  color: var(--ink);
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  /* Deliberately no explicit overflow here: the viewport already
+     scrolls overflowing content by default, and setting overflow:auto
+     on BOTH html and body creates two independent scroll containers
+     (per the CSS root-scrolling propagation rule) - #stage's
+     position:sticky (see the mobile media query) would then track the
+     wrong one and never actually stick. */
+}
+
+#app {
+  width: 1800px;
+  height: 900px;
+  display: flex;
+}
+
+#stage {
+  width: 900px;
+  height: 900px;
+  flex: 0 0 900px;
+  background: #000;
+  border: 3px solid var(--knob);
+  border-right: none;
+  border-radius: 3px 0 0 3px;
+  box-shadow: inset 0 0 0 1px #000, 0 0 0 1px rgba(0,0,0,0.5);
+}
+
+#scope {
+  width: 900px;
+  height: 900px;
+  display: block;
+  background: #000;
+}
+
+#panel {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 900px;
+  height: 900px;
+  overflow-y: auto;
+  background: var(--panel);
+  border: 3px solid var(--knob);
+  border-left: none;
+  border-radius: 0 3px 3px 0;
+  padding: 14px 18px 40px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  align-content: start;
+}
+
+#panel::-webkit-scrollbar { width: 10px; }
+#panel::-webkit-scrollbar-thumb { background: var(--orange); border-radius: 6px; }
+#panel::-webkit-scrollbar-track { background: var(--panel); }
+
+.panel-header {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 2px solid var(--panel-border);
+}
+
+.panel-header h1 {
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--orange);
+  text-shadow: 0 1px 0 rgba(255,255,255,0.5);
+  margin: 0;
+}
+
+.header-actions { display: flex; gap: 8px; }
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: 1px solid #a89f8a;
+  background: linear-gradient(#f8f4e9, #ddd4b8);
+  color: var(--ink);
+  border-radius: 4px;
+  padding: 7px 12px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.6), 0 1px 2px rgba(0,0,0,0.25);
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+
+button:hover { background: linear-gradient(#fffdf6, #e6dcbf); }
+
+.wide-btn {
+  background: linear-gradient(#f8f4e9, #ddd4b8);
+  border-color: #a89f8a;
+  color: var(--ink);
+}
+.wide-btn:hover { background: linear-gradient(#fffdf6, #e6dcbf); }
+.wide-btn.active {
+  background: linear-gradient(var(--orange-bright), var(--orange));
+  border-color: #000;
+  color: #fff6ec;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.35), 0 0 6px rgba(216,72,31,0.5);
+}
+.wide-btn.ghost {
+  background: #efe8d5;
+  color: var(--ink-dim);
+  border-color: #c3b89c;
+  font-weight: 700;
+}
+.wide-btn.ghost:hover { color: var(--ink); background: #f5efdd; }
+
+/* Per-effect Bypass toggle: a compact "B" button, blue when the effect
+   is bypassed (the opposite emphasis of .wide-btn.active elsewhere,
+   since here the neutral/off state is what needs no visual weight). */
+.bypass-btn {
+  flex: 0 0 auto;
+  min-width: 34px;
+  padding: 5px 10px;
+}
+.bypass-btn.bypassed {
+  background: linear-gradient(#5b8fe0, #3568b8);
+  border-color: #1c3f73;
+  color: #fff;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.35), 0 0 6px rgba(53,104,184,0.5);
+}
+.bypass-btn.bypassed:hover { background: linear-gradient(#6a9ce6, #3f72c0); }
+
+/* Grid layout: every fieldset is its own card; the .section wrapper
+   divs (compactParams/toneGroup/displayParams) go transparent so
+   their child fieldsets act as direct grid items. */
+.section {
+  display: contents;
+}
+
+fieldset.group {
+  border: 1px solid var(--panel-border);
+  border-radius: 4px;
+  margin: 0;
+  height: fit-content;
+  padding: 10px 14px 14px;
+  background: var(--panel-card);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.5), 0 1px 3px rgba(0,0,0,0.12);
+  /* fieldset (and flex/grid items generally) default to min-width:auto,
+     sized to their content's natural minimum instead of shrinking to
+     fit the grid track - without this, a long nowrap knob-readout (see
+     .knob-readout) forces the whole card, and with it the page, wider
+     than the viewport on narrow/mobile screens. */
+  min-width: 0;
+}
+
+fieldset.group legend {
+  padding: 0 6px;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--orange);
+}
+
+.param-block {
+  border-color: var(--panel-border);
+}
+
+/* Keeps Effects directly below Master regardless of which other cards
+   are visible (see mountEffectsBlock) - reset to normal auto-flow on
+   mobile (see the max-width:900px media query) since the panel is a
+   single column there. */
+.effects-block {
+  grid-column: 3;
+}
+
+.param-block legend {
+  color: var(--orange);
+}
+
+.subhead {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--ink-dim);
+  margin: 10px 0 4px;
+  border-top: 1px solid var(--panel-border);
+  padding-top: 6px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 5px 0;
+}
+
+.row label {
+  flex: 0 0 96px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--ink);
+}
+
+.row input[type="file"] {
+  flex: 1 1 auto;
+  background: #efe8d5;
+  color: var(--ink);
+  border: 1px solid #c3b89c;
+  border-radius: 3px;
+  padding: 4px 6px;
+  font-size: 12px;
+  box-shadow: inset 0 1px 2px rgba(0,0,0,0.15);
+}
+
+.readout {
+  flex: 0 0 46px;
+  text-align: right;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--orange);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Editable readout (see readoutHTML/channelDefs.freq): a real number
+   input styled to sit flush with the plain-span readouts elsewhere,
+   with just a bottom border on hover/focus as the only hint it's
+   typeable. */
+.readout-input {
+  border: none;
+  border-bottom: 1px solid transparent;
+  background: transparent;
+  padding: 0 0 1px;
+  font: inherit;
+  cursor: text;
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+.readout-input::-webkit-outer-spin-button,
+.readout-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.readout-input:hover,
+.readout-input:focus {
+  border-bottom-color: var(--orange);
+  outline: none;
+}
+
+.checks {
+  gap: 16px;
+}
+
+.check {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+/* Switches: checkboxes are restyled in place (no wrapper markup) into
+   a rocker-style track + knurled thumb, matching hardware toggles. */
+.check input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  width: 34px;
+  height: 18px;
+  background: #cfc6ac;
+  border: 1px solid #9a8f74;
+  border-radius: 10px;
+  position: relative;
+  cursor: pointer;
+  box-shadow: inset 0 1px 2px rgba(0,0,0,0.25);
+  flex: none;
+  margin: 0;
+  transition: background 0.15s;
+}
+.check input[type="checkbox"]::before {
+  content: '';
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, var(--knob-face), var(--knob) 75%);
+  border: 1px solid #000;
+  transition: transform 0.15s;
+}
+.check input[type="checkbox"]:checked {
+  background: linear-gradient(var(--orange-bright), var(--orange));
+  border-color: #000;
+}
+.check input[type="checkbox"]:checked::before {
+  transform: translateX(16px);
+}
+
+.hint {
+  font-size: 12px;
+  color: var(--ink-dim);
+  font-style: italic;
+}
+
+#spectroCanvas {
+  width: 100%;
+  height: 90px;
+  display: block;
+  background: #000;
+  border: 1px solid var(--panel-border);
+  border-radius: 3px;
+}
+
+/* ---------------------------------------------------------------
+   Knob controls: every dropdown and every slider is a rotary knob.
+   .knob-wrap holds a visually-hidden native <input type="range">
+   (the real value/event model, see initValueKnobFromInput in
+   script.js) plus a .knob-dial sibling that's purely the visual +
+   interactive proxy. .knob-select is the dropdown equivalent, built
+   entirely by initSelectKnob (dial + text readout, no hidden input
+   needed since there's no continuous native control to shadow).
+   --------------------------------------------------------------- */
+.knob-wrap {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+}
+
+.knob-hidden-input {
+  display: none;
+}
+
+.knob-dial {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, var(--knob-face), var(--knob) 75%);
+  border: 1px solid #000;
+  box-shadow: 0 0 0 2px rgba(216,72,31,0.35), 0 1px 3px rgba(0,0,0,0.45), inset 0 1px 1px rgba(255,255,255,0.15);
+  position: relative;
+  flex: none;
+  cursor: ns-resize;
+  touch-action: none;
+}
+
+.knob-indicator {
+  position: absolute;
+  top: 3px;
+  left: 50%;
+  width: 2px;
+  height: 10px;
+  background: var(--knob-indicator);
+  transform: translateX(-50%);
+  border-radius: 1px;
+  pointer-events: none;
+}
+
+/* Fixed tick mark (does not rotate with the knob) showing where a
+   snap-to-zero control's neutral center sits, so a dragged knob has a
+   visible target to return the indicator to. */
+.knob-dial.has-notch::before {
+  content: '';
+  position: absolute;
+  top: -5px;
+  left: 50%;
+  width: 2px;
+  height: 5px;
+  background: var(--orange);
+  transform: translateX(-50%);
+  border-radius: 1px;
+  pointer-events: none;
+}
+
+/* Floating exact-value badge shown while a knob is being dragged. */
+.knob-tooltip {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--knob);
+  color: var(--knob-indicator);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 3px;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 10;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.35);
+}
+
+.knob-select {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  user-select: none;
+}
+
+.knob-readout {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--orange);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.preset-actions button {
+  flex: 1 1 0;
+}
+
+.preset-list {
+  margin-top: 8px;
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--panel-border);
+  border-radius: 3px;
+  background: #efe8d5;
+}
+
+.preset-list::-webkit-scrollbar { width: 8px; }
+.preset-list::-webkit-scrollbar-thumb { background: var(--orange); border-radius: 6px; }
+.preset-list::-webkit-scrollbar-track { background: #efe8d5; }
+
+.preset-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink);
+  border-bottom: 1px solid var(--panel-border);
+  cursor: pointer;
+}
+.preset-item:last-child { border-bottom: none; }
+.preset-item:hover { background: #e2d9bd; }
+
+.preset-item .preset-name {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.preset-item .preset-name-input {
+  flex: 1 1 auto;
+  background: #fffdf6;
+  color: var(--ink);
+  border: 1px solid var(--orange);
+  border-radius: 2px;
+  font: inherit;
+  padding: 2px 4px;
+}
+
+.preset-item .preset-delete {
+  flex: none;
+  border: none;
+  background: transparent;
+  color: var(--ink-dim);
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+  padding: 0 2px;
+  box-shadow: none;
+}
+.preset-item .preset-delete:hover { color: var(--orange); }
+
+.preset-empty {
+  padding: 10px;
+  font-size: 11px;
+  font-style: italic;
+  color: var(--ink-dim);
+}
+
+/* Mobile: #app is a fixed-size desktop layout (side-by-side stage +
+   panel) above this breakpoint. Below it, stack vertically - the
+   oscilloscope on top, full-width and square, with the controls panel
+   flowing below it and the whole page scrolling normally instead of
+   #panel's own internal scrollbar. Kept at the end of the file so
+   every override here reliably beats the desktop rule it targets,
+   regardless of that rule's own position earlier in the stylesheet. */
+@media (max-width: 900px) {
+  #app {
+    width: 100%;
+    height: auto;
+    flex-direction: column;
+    padding: 10px;
+  }
+
+  #stage {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 1 / 1;
+    flex: none;
+    margin-right: 0;
+    margin-bottom: 12px;
+    /* Stacked (not side-by-side) here, with a visible gap between them,
+       so the desktop-only seamless shared edge doesn't apply - restore
+       the full border/radius the base rule strips for that join. */
+    border-right: 3px solid var(--knob);
+    border-radius: 3px;
+    /* Persists on screen while #panel scrolls beneath it: sticky keeps
+       its normal in-flow position/size until scrolling would carry it
+       above the viewport top, then pins it there. z-index guarantees
+       it stays drawn over #panel's content rather than the reverse. */
+    position: sticky;
+    top: 0;
+    z-index: 5;
+  }
+
+  #scope {
+    width: 100%;
+    height: 100%;
+  }
+
+  #panel {
+    width: 100%;
+    height: auto;
+    overflow-y: visible;
+    grid-template-columns: 1fr;
+    border-left: 3px solid var(--knob);
+    border-radius: 3px;
+  }
+
+  .effects-block {
+    grid-column: auto;
+  }
+
+  .header-actions {
+    flex-wrap: wrap;
+  }
+}

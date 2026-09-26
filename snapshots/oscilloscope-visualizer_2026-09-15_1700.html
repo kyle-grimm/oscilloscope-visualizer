@@ -1,0 +1,2322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Oscilloscope Visualizer</title>
+<style>
+/* ---------------------------------------------------------------
+   Moog Grandmother inspired panel: light golden-oak end cheeks, a
+   cream control surface, Moog-red-orange accent, knurled dark knobs
+   with a cream pointer line.
+   --------------------------------------------------------------- */
+:root {
+  --wood-dark: #4a3319;
+  --wood-mid: #8a6239;
+  --wood-light: #c9a06a;
+  --panel: #e7e0cd;
+  --panel-card: #f2ecdd;
+  --panel-border: #c3b89c;
+  --ink: #2b2620;
+  --ink-dim: #7a7160;
+  --orange: #d8481f;
+  --orange-bright: #f2793f;
+  --knob: #1c1a17;
+  --knob-face: #4a4844;
+  --knob-indicator: #f2ecdd;
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: #000;
+  color: var(--ink);
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  /* Deliberately no explicit overflow here: the viewport already
+     scrolls overflowing content by default, and setting overflow:auto
+     on BOTH html and body creates two independent scroll containers
+     (per the CSS root-scrolling propagation rule) - #stage's
+     position:sticky (see the mobile media query) would then track the
+     wrong one and never actually stick. */
+}
+
+#app {
+  width: 1928px;
+  height: 1028px;
+  display: flex;
+  padding: 14px;
+  background:
+    repeating-linear-gradient(100deg, rgba(0,0,0,0.10) 0 2px, transparent 2px 5px),
+    linear-gradient(90deg, var(--wood-dark), var(--wood-light) 12%, var(--wood-mid) 50%, var(--wood-light) 88%, var(--wood-dark));
+}
+
+#stage {
+  width: 1000px;
+  height: 1000px;
+  flex: 0 0 1000px;
+  background: #000;
+  border: 3px solid var(--knob);
+  border-radius: 3px;
+  box-shadow: inset 0 0 0 1px #000, 0 0 0 1px rgba(0,0,0,0.5);
+  margin-right: 14px;
+}
+
+#scope {
+  width: 1000px;
+  height: 1000px;
+  display: block;
+  background: #000;
+}
+
+#panel {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 900px;
+  height: 1000px;
+  overflow-y: auto;
+  background: var(--panel);
+  border: 3px solid var(--knob);
+  border-radius: 3px;
+  padding: 14px 18px 40px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  align-content: start;
+}
+
+#panel::-webkit-scrollbar { width: 10px; }
+#panel::-webkit-scrollbar-thumb { background: var(--orange); border-radius: 6px; }
+#panel::-webkit-scrollbar-track { background: var(--panel); }
+
+.panel-header {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 2px solid var(--panel-border);
+}
+
+.panel-header h1 {
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--orange);
+  text-shadow: 0 1px 0 rgba(255,255,255,0.5);
+  margin: 0;
+}
+
+.header-actions { display: flex; gap: 8px; }
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: 1px solid #a89f8a;
+  background: linear-gradient(#f8f4e9, #ddd4b8);
+  color: var(--ink);
+  border-radius: 4px;
+  padding: 7px 12px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.6), 0 1px 2px rgba(0,0,0,0.25);
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+
+button:hover { background: linear-gradient(#fffdf6, #e6dcbf); }
+
+.wide-btn {
+  background: linear-gradient(#f8f4e9, #ddd4b8);
+  border-color: #a89f8a;
+  color: var(--ink);
+}
+.wide-btn:hover { background: linear-gradient(#fffdf6, #e6dcbf); }
+.wide-btn.active {
+  background: linear-gradient(var(--orange-bright), var(--orange));
+  border-color: #000;
+  color: #fff6ec;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.35), 0 0 6px rgba(216,72,31,0.5);
+}
+.wide-btn.ghost {
+  background: #efe8d5;
+  color: var(--ink-dim);
+  border-color: #c3b89c;
+  font-weight: 700;
+}
+.wide-btn.ghost:hover { color: var(--ink); background: #f5efdd; }
+
+/* Grid layout: every fieldset is its own card; the .section wrapper
+   divs (compactParams/toneGroup/displayParams) go transparent so
+   their child fieldsets act as direct grid items. */
+.section {
+  display: contents;
+}
+
+fieldset.group {
+  border: 1px solid var(--panel-border);
+  border-radius: 4px;
+  margin: 0;
+  height: fit-content;
+  padding: 10px 14px 14px;
+  background: var(--panel-card);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.5), 0 1px 3px rgba(0,0,0,0.12);
+  /* fieldset (and flex/grid items generally) default to min-width:auto,
+     sized to their content's natural minimum instead of shrinking to
+     fit the grid track - without this, a long nowrap knob-readout (see
+     .knob-readout) forces the whole card, and with it the page, wider
+     than the viewport on narrow/mobile screens. */
+  min-width: 0;
+}
+
+fieldset.group legend {
+  padding: 0 6px;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--orange);
+}
+
+.param-block {
+  border-color: var(--panel-border);
+}
+
+/* Keeps Effects directly below Master regardless of which other cards
+   are visible (see mountEffectsBlock) - reset to normal auto-flow on
+   mobile (see the max-width:900px media query) since the panel is a
+   single column there. */
+.effects-block {
+  grid-column: 3;
+}
+
+.param-block legend {
+  color: var(--orange);
+}
+
+.subhead {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--ink-dim);
+  margin: 10px 0 4px;
+  border-top: 1px solid var(--panel-border);
+  padding-top: 6px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 5px 0;
+}
+
+.row label {
+  flex: 0 0 96px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--ink);
+}
+
+.row input[type="file"] {
+  flex: 1 1 auto;
+  background: #efe8d5;
+  color: var(--ink);
+  border: 1px solid #c3b89c;
+  border-radius: 3px;
+  padding: 4px 6px;
+  font-size: 12px;
+  box-shadow: inset 0 1px 2px rgba(0,0,0,0.15);
+}
+
+.readout {
+  flex: 0 0 46px;
+  text-align: right;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--orange);
+  font-variant-numeric: tabular-nums;
+}
+
+.checks {
+  gap: 16px;
+}
+
+.check {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+/* Switches: checkboxes are restyled in place (no wrapper markup) into
+   a rocker-style track + knurled thumb, matching hardware toggles. */
+.check input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  width: 34px;
+  height: 18px;
+  background: #cfc6ac;
+  border: 1px solid #9a8f74;
+  border-radius: 10px;
+  position: relative;
+  cursor: pointer;
+  box-shadow: inset 0 1px 2px rgba(0,0,0,0.25);
+  flex: none;
+  margin: 0;
+  transition: background 0.15s;
+}
+.check input[type="checkbox"]::before {
+  content: '';
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, var(--knob-face), var(--knob) 75%);
+  border: 1px solid #000;
+  transition: transform 0.15s;
+}
+.check input[type="checkbox"]:checked {
+  background: linear-gradient(var(--orange-bright), var(--orange));
+  border-color: #000;
+}
+.check input[type="checkbox"]:checked::before {
+  transform: translateX(16px);
+}
+
+.hint {
+  font-size: 12px;
+  color: var(--ink-dim);
+  font-style: italic;
+}
+
+/* ---------------------------------------------------------------
+   Knob controls: every dropdown and every slider is a rotary knob.
+   .knob-wrap holds a visually-hidden native <input type="range">
+   (the real value/event model, see initValueKnobFromInput in
+   script.js) plus a .knob-dial sibling that's purely the visual +
+   interactive proxy. .knob-select is the dropdown equivalent, built
+   entirely by initSelectKnob (dial + text readout, no hidden input
+   needed since there's no continuous native control to shadow).
+   --------------------------------------------------------------- */
+.knob-wrap {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+}
+
+.knob-hidden-input {
+  display: none;
+}
+
+.knob-dial {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, var(--knob-face), var(--knob) 75%);
+  border: 1px solid #000;
+  box-shadow: 0 0 0 2px rgba(216,72,31,0.35), 0 1px 3px rgba(0,0,0,0.45), inset 0 1px 1px rgba(255,255,255,0.15);
+  position: relative;
+  flex: none;
+  cursor: ns-resize;
+  touch-action: none;
+}
+
+.knob-indicator {
+  position: absolute;
+  top: 3px;
+  left: 50%;
+  width: 2px;
+  height: 10px;
+  background: var(--knob-indicator);
+  transform: translateX(-50%);
+  border-radius: 1px;
+  pointer-events: none;
+}
+
+/* Fixed tick mark (does not rotate with the knob) showing where a
+   snap-to-zero control's neutral center sits, so a dragged knob has a
+   visible target to return the indicator to. */
+.knob-dial.has-notch::before {
+  content: '';
+  position: absolute;
+  top: -5px;
+  left: 50%;
+  width: 2px;
+  height: 5px;
+  background: var(--orange);
+  transform: translateX(-50%);
+  border-radius: 1px;
+  pointer-events: none;
+}
+
+/* Floating exact-value badge shown while a knob is being dragged. */
+.knob-tooltip {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--knob);
+  color: var(--knob-indicator);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 3px;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 10;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.35);
+}
+
+.knob-select {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  user-select: none;
+}
+
+.knob-readout {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--orange);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.preset-actions button {
+  flex: 1 1 0;
+}
+
+.preset-list {
+  margin-top: 8px;
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--panel-border);
+  border-radius: 3px;
+  background: #efe8d5;
+}
+
+.preset-list::-webkit-scrollbar { width: 8px; }
+.preset-list::-webkit-scrollbar-thumb { background: var(--orange); border-radius: 6px; }
+.preset-list::-webkit-scrollbar-track { background: #efe8d5; }
+
+.preset-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink);
+  border-bottom: 1px solid var(--panel-border);
+  cursor: pointer;
+}
+.preset-item:last-child { border-bottom: none; }
+.preset-item:hover { background: #e2d9bd; }
+
+.preset-item .preset-name {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.preset-item .preset-name-input {
+  flex: 1 1 auto;
+  background: #fffdf6;
+  color: var(--ink);
+  border: 1px solid var(--orange);
+  border-radius: 2px;
+  font: inherit;
+  padding: 2px 4px;
+}
+
+.preset-item .preset-delete {
+  flex: none;
+  border: none;
+  background: transparent;
+  color: var(--ink-dim);
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+  padding: 0 2px;
+  box-shadow: none;
+}
+.preset-item .preset-delete:hover { color: var(--orange); }
+
+.preset-empty {
+  padding: 10px;
+  font-size: 11px;
+  font-style: italic;
+  color: var(--ink-dim);
+}
+
+/* Mobile: #app is a fixed-size desktop layout (side-by-side stage +
+   panel) above this breakpoint. Below it, stack vertically - the
+   oscilloscope on top, full-width and square, with the controls panel
+   flowing below it and the whole page scrolling normally instead of
+   #panel's own internal scrollbar. Kept at the end of the file so
+   every override here reliably beats the desktop rule it targets,
+   regardless of that rule's own position earlier in the stylesheet. */
+@media (max-width: 900px) {
+  #app {
+    width: 100%;
+    height: auto;
+    flex-direction: column;
+    padding: 10px;
+  }
+
+  #stage {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 1 / 1;
+    flex: none;
+    margin-right: 0;
+    margin-bottom: 12px;
+    /* Persists on screen while #panel scrolls beneath it: sticky keeps
+       its normal in-flow position/size until scrolling would carry it
+       above the viewport top, then pins it there. z-index guarantees
+       it stays drawn over #panel's content rather than the reverse. */
+    position: sticky;
+    top: 0;
+    z-index: 5;
+  }
+
+  #scope {
+    width: 100%;
+    height: 100%;
+  }
+
+  #panel {
+    width: 100%;
+    height: auto;
+    overflow-y: visible;
+    grid-template-columns: 1fr;
+  }
+
+  .effects-block {
+    grid-column: auto;
+  }
+
+  .header-actions {
+    flex-wrap: wrap;
+  }
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="stage">
+    <canvas id="scope" width="1000" height="1000"></canvas>
+  </div>
+
+  <div id="panel">
+    <div class="panel-header">
+      <h1>Oscilloscope Visualizer</h1>
+      <div class="header-actions">
+        <button id="muteBtn" class="wide-btn ghost">Mute Tone</button>
+        <button id="pauseBtn" class="wide-btn ghost">Pause Signal</button>
+        <button id="freezeBtn" class="wide-btn">Freeze</button>
+        <button id="resetBtn" class="wide-btn ghost">Reset</button>
+      </div>
+    </div>
+
+    <fieldset class="group" id="sourceDisplaySection">
+      <legend>Source &amp; Display</legend>
+      <div class="row">
+        <label for="sourceSelect">Input</label>
+        <div id="sourceSelect" class="knob-select"></div>
+      </div>
+      <div class="row" id="fileRow" hidden>
+        <label for="fileInput">File</label>
+        <input type="file" id="fileInput" accept="audio/*">
+      </div>
+      <div class="row" id="liveStatusRow" hidden>
+        <span id="liveStatus" class="hint">Requesting access...</span>
+      </div>
+      <div class="row">
+        <label for="modeSelect">Mode</label>
+        <div id="modeSelect" class="knob-select"></div>
+      </div>
+      <div class="row checks">
+        <label class="check"><input type="checkbox" id="showGrid" checked> Grid</label>
+        <label class="check"><input type="checkbox" id="glow" checked> Glow</label>
+      </div>
+      <div class="row checks">
+        <label class="check"><input type="checkbox" id="invertXY"> Invert X-Y</label>
+      </div>
+      <div class="subhead">Hue</div>
+      <div id="hueParams"></div>
+    </fieldset>
+
+    <fieldset class="group" id="presetsSection">
+      <legend>Presets</legend>
+      <div class="row preset-actions">
+        <button id="savePresetBtn" class="wide-btn ghost" type="button">Save</button>
+        <button id="randomizeBtn" class="wide-btn ghost" type="button">Randomize</button>
+      </div>
+      <div id="presetList" class="preset-list"></div>
+    </fieldset>
+
+    <div id="compactParams" class="section"></div>
+
+    <div id="toneGroup" class="section"></div>
+
+    <div id="effectsParams" class="section"></div>
+
+    <div id="displayParams" class="section"></div>
+  </div>
+</div>
+<script>
+'use strict';
+
+const canvas = document.getElementById('scope');
+const ctx = canvas.getContext('2d');
+const W = canvas.width, H = canvas.height;
+const FFT_SIZE = 2048;
+
+// Max number of parallel chorus voices the Chorus knob can dial in (see
+// effectsParamDefs/buildEffectsChain/updateEffectsAudio).
+const CHORUS_MAX_VOICES = 7;
+
+// Knob geometry/drag-sensitivity constants, defined up top since knob
+// controls for sourceSelect/modeSelect are initialized immediately
+// below (before the rest of the knob helper code further down runs).
+const KNOB_ANGLE_MIN = -132;
+const KNOB_ANGLE_MAX = 132;
+const KNOB_FULL_SWEEP_PX = 220; // vertical drag distance covering min -> max
+const KNOB_OPTION_STEP_PX = 18; // vertical drag distance per discrete option
+// Holding Shift when a drag STARTS switches that whole drag to fine
+// adjustment (10% sensitivity). The modifier is only checked at
+// drag-start so it can't flip mid-drag.
+const FINE_DRAG_FACTOR = 0.1;
+
+const els = {
+  sourceSelect: document.getElementById('sourceSelect'),
+  fileRow: document.getElementById('fileRow'),
+  fileInput: document.getElementById('fileInput'),
+  liveStatusRow: document.getElementById('liveStatusRow'),
+  liveStatus: document.getElementById('liveStatus'),
+  toneGroup: document.getElementById('toneGroup'),
+  displayParams: document.getElementById('displayParams'),
+  compactParams: document.getElementById('compactParams'),
+  effectsParams: document.getElementById('effectsParams'),
+  hueParams: document.getElementById('hueParams'),
+  modeSelect: document.getElementById('modeSelect'),
+  showGrid: document.getElementById('showGrid'),
+  glow: document.getElementById('glow'),
+  invertXY: document.getElementById('invertXY'),
+  muteBtn: document.getElementById('muteBtn'),
+  pauseBtn: document.getElementById('pauseBtn'),
+  freezeBtn: document.getElementById('freezeBtn'),
+  resetBtn: document.getElementById('resetBtn'),
+  savePresetBtn: document.getElementById('savePresetBtn'),
+  randomizeBtn: document.getElementById('randomizeBtn'),
+  presetList: document.getElementById('presetList'),
+};
+
+const DEFAULTS = { source: 'tone', mode: 'xy', showGrid: true, glow: true, invertXY: false };
+const display = { ...DEFAULTS };
+let frozen = false;
+
+initSelectKnob(els.sourceSelect, [
+  { value: 'tone', label: 'Test Tone' },
+  { value: 'mic', label: 'Microphone' },
+  { value: 'lineout', label: 'Line Out' },
+  { value: 'file', label: 'Audio File' },
+], DEFAULTS.source);
+initSelectKnob(els.modeSelect, [
+  { value: 'waveform', label: 'Waveform' },
+  { value: 'xy', label: 'XY (Lissajous)' },
+], DEFAULTS.mode);
+
+// Mute Tone silences only the sink feeding the speakers - the analysers
+// tap the signal upstream of it, so the visualization keeps running.
+const TONE_AUDIBLE_GAIN = 0.2;
+let toneMuted = false;
+
+let audioCtx = null;
+function getAudioCtx() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  return audioCtx;
+}
+// Only unlocks autoplay on the very first interaction - must not keep
+// firing, or it would silently undo a deliberate Pause Signal click.
+document.addEventListener('pointerdown', () => { if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume(); }, { once: true });
+
+// Rotation only makes sense on the Waveform trace (XY mode is its own
+// 2D shape already), so its card is shown/hidden alongside the tone
+// channel cards depending on source/mode.
+let rotationFieldset = null;
+
+function updateVisibility() {
+  els.toneGroup.style.display = els.sourceSelect.value === 'tone' ? '' : 'none';
+  if (rotationFieldset) rotationFieldset.style.display = els.modeSelect.value === 'waveform' ? '' : 'none';
+}
+
+// ---------------------------------------------------------------
+// Knob controls: every dropdown and slider in the UI is a rotary knob,
+// Moog-panel style, instead.
+//
+// Continuous knobs (initValueKnobFromInput) wrap the existing (now
+// visually hidden) <input type="range"> rather than replacing it: the
+// knob just becomes a drag/wheel proxy that reads/writes that input's
+// value and dispatches the same 'input' event a real slider would, so
+// every bit of existing value wiring (wireParamBlock,
+// syncParamControlsFromState, presets, randomize, reset) keeps working
+// completely unchanged.
+//
+// Discrete knobs (initSelectKnob) replace <select> the same way,
+// exposing a matching .value getter/setter and dispatching 'change'.
+// ---------------------------------------------------------------
+// Floating value badge shown above a knob while it's being dragged, so
+// the exact current amount is visible right at the cursor instead of
+// only in the row's (possibly out-of-view-of-the-cursor) readout span.
+function createKnobTooltip(dial) {
+  const tip = document.createElement('div');
+  tip.className = 'knob-tooltip';
+  tip.style.display = 'none';
+  dial.appendChild(tip);
+  return {
+    show(text) { tip.textContent = text; tip.style.display = 'block'; },
+    update(text) { tip.textContent = text; },
+    hide() { tip.style.display = 'none'; },
+  };
+}
+
+function initSelectKnob(el, options, initialValue) {
+  const dial = document.createElement('div');
+  dial.className = 'knob-dial';
+  const indicator = document.createElement('div');
+  indicator.className = 'knob-indicator';
+  dial.appendChild(indicator);
+  const readout = document.createElement('div');
+  readout.className = 'knob-readout';
+  el.appendChild(dial);
+  el.appendChild(readout);
+
+  let index = options.findIndex(o => String(o.value) === String(initialValue));
+  if (index < 0) index = 0;
+
+  function render() {
+    const frac = options.length > 1 ? index / (options.length - 1) : 0.5;
+    dial.style.transform = `rotate(${KNOB_ANGLE_MIN + frac * (KNOB_ANGLE_MAX - KNOB_ANGLE_MIN)}deg)`;
+    readout.textContent = options[index].label;
+  }
+  render();
+
+  const tooltip = createKnobTooltip(dial);
+
+  // Matches native <select>.value semantics: a programmatic set updates
+  // the display but does not fire 'change' (callers that need the side
+  // effect call it explicitly, same as they always did for <select>).
+  Object.defineProperty(el, 'value', {
+    get() { return options[index].value; },
+    set(v) {
+      const i = options.findIndex(o => String(o.value) === String(v));
+      if (i >= 0 && i !== index) { index = i; render(); }
+    },
+  });
+
+  function setIndex(newIndex) {
+    newIndex = Math.max(0, Math.min(options.length - 1, newIndex));
+    if (newIndex !== index) {
+      index = newIndex;
+      render();
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  }
+
+  let dragging = false, startY = 0, startIndex = 0;
+  dial.addEventListener('pointerdown', (e) => {
+    dragging = true;
+    startY = e.clientY;
+    startIndex = index;
+    dial.setPointerCapture(e.pointerId);
+    tooltip.show(readout.textContent);
+    e.preventDefault();
+  });
+  dial.addEventListener('pointermove', (e) => {
+    if (!dragging) return;
+    setIndex(startIndex + Math.round((startY - e.clientY) / KNOB_OPTION_STEP_PX));
+    tooltip.update(readout.textContent);
+  });
+  dial.addEventListener('pointerup', (e) => {
+    dragging = false;
+    tooltip.hide();
+    try { dial.releasePointerCapture(e.pointerId); } catch (err) { /* already released */ }
+  });
+  dial.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    setIndex(index + (e.deltaY < 0 ? 1 : -1));
+  }, { passive: false });
+}
+
+function initValueKnobFromInput(input, dial) {
+  const min = parseFloat(input.min), max = parseFloat(input.max);
+  const step = parseFloat(input.step) || (max - min) / 100;
+  const nativeDesc = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+  // paramRowsHTML always names the row's readout span "<inputId>Val".
+  const readoutEl = document.getElementById(`${input.id}Val`);
+  const tooltip = createKnobTooltip(dial);
+
+  function render() {
+    const v = parseFloat(nativeDesc.get.call(input));
+    const frac = max > min ? Math.max(0, Math.min(1, (v - min) / (max - min))) : 0;
+    dial.style.transform = `rotate(${KNOB_ANGLE_MIN + frac * (KNOB_ANGLE_MAX - KNOB_ANGLE_MIN)}deg)`;
+  }
+
+  // Shadow the native value accessor so ANY programmatic set (preset
+  // load, reset, randomize, syncParamControlsFromState) keeps the
+  // knob's rotation in sync without those call sites knowing knobs exist.
+  Object.defineProperty(input, 'value', {
+    get() { return nativeDesc.get.call(input); },
+    set(v) { nativeDesc.set.call(input, v); render(); },
+  });
+
+  render();
+
+  // A "notch" control (see effectsParamDefs.filterAmount) magnetically
+  // snaps back to exactly 0 once the dragged/scrolled value is within a
+  // small window of it, so the knob is easy to return to neutral with a
+  // mouse instead of hunting for the exact pixel.
+  const snapZero = input.dataset.snapZero === '1';
+  const snapWindow = (max - min) * 0.035;
+  function applySnap(v) {
+    return (snapZero && Math.abs(v) < snapWindow) ? 0 : v;
+  }
+
+  let dragging = false, startY = 0, startVal = 0, fine = false;
+  dial.addEventListener('pointerdown', (e) => {
+    dragging = true;
+    startY = e.clientY;
+    startVal = parseFloat(nativeDesc.get.call(input));
+    fine = e.shiftKey;
+    dial.setPointerCapture(e.pointerId);
+    if (readoutEl) tooltip.show(readoutEl.textContent);
+    e.preventDefault();
+  });
+  dial.addEventListener('pointermove', (e) => {
+    if (!dragging) return;
+    const sensitivity = fine ? FINE_DRAG_FACTOR : 1;
+    let v = startVal + ((startY - e.clientY) / KNOB_FULL_SWEEP_PX) * (max - min) * sensitivity;
+    v = Math.round(Math.min(max, Math.max(min, v)) / step) * step;
+    v = applySnap(v);
+    input.value = v;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    if (readoutEl) tooltip.update(readoutEl.textContent);
+  });
+  dial.addEventListener('pointerup', (e) => {
+    dragging = false;
+    tooltip.hide();
+    try { dial.releasePointerCapture(e.pointerId); } catch (err) { /* already released */ }
+  });
+  dial.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    let v = Math.min(max, Math.max(min, parseFloat(nativeDesc.get.call(input)) + (e.deltaY < 0 ? step : -step)));
+    v = applySnap(v);
+    input.value = v;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  }, { passive: false });
+}
+
+// ---------------------------------------------------------------
+// Every numeric control gets a base value with a knob (see
+// paramRowsHTML). No LFO modulation anywhere - each param is just its
+// plain set value.
+// ---------------------------------------------------------------
+const WAVE_OPTIONS = ['sine', 'triangle', 'sawtooth', 'square'];
+
+// X/Y test-tone channels: each has its own Wave type plus a Frequency,
+// a Phase, and a Gain. Phase is implemented via a DelayNode (see
+// setupTone) since OscillatorNode has no live-adjustable phase param.
+const channelDefs = [
+  { chanKey: 'X', label: 'X Channel', waveKey: 'waveX',
+    freq: { key: 'freqX', label: 'X Freq', min: 20, max: 500, def: 220, step: 1, digits: 0 },
+    phase: { key: 'phaseX', label: 'X Phase', min: 0, max: 360, def: 0, step: 1, digits: 0 },
+    // Continuously rotates X Phase (see the eff.phaseX wrap-around in
+    // render()) - repeats smoothly instead of bouncing off 0/360,
+    // degrees per second, one direction only. Scaled by Master Time
+    // like the oscillator's own pitch, unlike Hue Rotation Speed.
+    phaseSpeed: { key: 'phaseSpeedX', label: 'Phase Speed', min: 0, max: 360, def: 0, step: 1, digits: 0 },
+    gain: { key: 'oscGainX', label: 'Gain', min: 0.1, max: 1.25, def: 1, step: 0.01, digits: 2 } },
+  { chanKey: 'Y', label: 'Y Channel', waveKey: 'waveY',
+    freq: { key: 'freqY', label: 'Y Freq', min: 20, max: 500, def: 330, step: 1, digits: 0 },
+    phase: { key: 'phaseY', label: 'Y Phase', min: 0, max: 360, def: 0, step: 1, digits: 0 },
+    phaseSpeed: { key: 'phaseSpeedY', label: 'Phase Speed', min: 0, max: 360, def: 0, step: 1, digits: 0 },
+    gain: { key: 'oscGainY', label: 'Gain', min: 0.1, max: 1.25, def: 1, step: 0.01, digits: 2 } },
+];
+
+// ---------------------------------------------------------------
+// Chord layers: each X/Y channel can layer in up to two extra
+// oscillators. "Chord" derives its frequency from the channel's own
+// fundamental; "Chord 2" derives its frequency from Chord's (the
+// "second wave"), chaining fundamental -> chord -> chord2. Each layer
+// has its own Wave, Gain, frequency Multiple/Divide, and Detune.
+// Disabled layers keep running silently (gain forced to 0) rather than
+// being torn down, so toggling them is instant and glitch-free.
+// ---------------------------------------------------------------
+const MULTIPLE_OPTIONS = Array.from({ length: 13 }, (_, i) => ({ v: i + 1, l: String(i + 1) }));
+
+// Divide is a separate integer denominator applied on top of Multiple
+// (freq = ... * multiple / divide), so any small-integer ratio like
+// 3:2 or 5:4 is reachable - the classic way modular/FM synths express
+// a carrier:modulator or chord ratio, not just whole multiples.
+const DIVIDE_OPTIONS = Array.from({ length: 13 }, (_, i) => ({ v: i + 1, l: String(i + 1) }));
+
+// Detune is split into a Coarse knob (+/-1 semitone) and a Fine knob
+// (+/-1 cent = +/-0.01 semitone); updateChordAudio combines them
+// (coarse + fine/100) into one semitone value before applying.
+const chordLevelDefs = ['X', 'Y'].flatMap(chan => [
+  { prefix: `chord${chan}`, chan, levelLabel: 'Chord',
+    gain: { key: `chord${chan}_gain`, label: 'Gain', min: 0, max: 1, def: 0.5, step: 0.01, digits: 2 },
+    detuneCoarse: { key: `chord${chan}_detuneCoarse`, label: 'Coarse Detune', min: -1, max: 1, def: 0, step: 0.01, digits: 2 },
+    detuneFine: { key: `chord${chan}_detuneFine`, label: 'Fine Detune', min: -1, max: 1, def: 0, step: 0.01, digits: 2 } },
+  { prefix: `chord2${chan}`, chan, levelLabel: 'Chord 2',
+    gain: { key: `chord2${chan}_gain`, label: 'Gain', min: 0, max: 1, def: 0.5, step: 0.01, digits: 2 },
+    detuneCoarse: { key: `chord2${chan}_detuneCoarse`, label: 'Coarse Detune', min: -1, max: 1, def: 0, step: 0.01, digits: 2 },
+    detuneFine: { key: `chord2${chan}_detuneFine`, label: 'Fine Detune', min: -1, max: 1, def: 0, step: 0.01, digits: 2 } },
+]);
+
+const chordEls = {}; // prefix -> { enabledEl, bodyEl, functionEl, waveEl, multipleEl, divideEl, gainLabelEl }
+
+function semitoneRatio(semitones) { return Math.pow(2, semitones / 12); }
+
+// Solo display parameters. Rotation gets its own card (see
+// buildParamBlock); Hue and Rotation Speed are instead rendered inside
+// the Source & Display card's #hueParams slot (see mountParamBlocks).
+const paramDefs = [
+  { key: 'rotation', label: 'Rotation', min: 0, max: 360, def: 0, step: 1, digits: 0,
+    blockLabel: 'Trace Rotation (Waveform)' },
+  { key: 'hue', label: 'Trace Hue', min: 0, max: 360, def: 90, step: 1, digits: 0 },
+  // Continuously rotates Trace Hue around the color wheel (see the
+  // eff.hue wrap-around in render()) - repeats smoothly instead of
+  // bouncing off 0/360. Degrees per second, one direction only: 0 is
+  // stopped, no negative/reverse.
+  { key: 'hueRotationSpeed', label: 'Rotation Speed', min: 0, max: 360, def: 0, step: 1, digits: 0 },
+];
+
+// The "Master" grid: Persistence (with Hold right under it), Gain,
+// Line Width, and both Master Time controls share one card.
+const compactParamDefs = [
+  // logMid overrides the plain log mapping (see logMidToValue/
+  // valueToLogMidT) so the slider's midpoint lands on 0.7 instead of
+  // the geometric mean (~0.1) - most of the useful range for a trail
+  // decay is actually up near 1, so that's where the extra resolution
+  // should go.
+  { key: 'persistence', label: 'Persistence', min: 0.01, max: 1, def: 0.24, step: 0.01, digits: 2, log: true, logMid: 0.7 },
+  // Stretches one Persistence decay cycle across this many extra frames
+  // (see render()) so the fade stays continuous/smooth every frame
+  // instead of freezing then jumping - 0 decays at the raw Persistence
+  // rate every frame, as before.
+  { key: 'hold', label: 'Hold', min: 0, max: 60, def: 0, step: 1, digits: 0 },
+  { key: 'gain', label: 'Gain', min: 0.1, max: 1.25, def: 0.69, step: 0.01, digits: 2 },
+  { key: 'lineWidth', label: 'Line Width', min: 0.5, max: 15, def: 1.5, step: 0.1, digits: 1 },
+  // 1x is normal speed, 0.0001x is nearly frozen. Capped at 1x: this is
+  // a slow-motion control, not a speed-up (see masterTimeFast for
+  // that). Dilates tone pitch directly every frame (see render()) -
+  // log:true makes the slider itself logarithmic (see paramRowsHTML/
+  // wireParamBlock/syncParamControlsFromState).
+  { key: 'masterTime', label: 'Master Time', min: 0.0001, max: 1, def: 1, step: 0.0001, digits: 4, log: true },
+  // Companion to masterTime covering the speed-up range instead of
+  // slow-motion: 1x-1000x, also logarithmic. The two multiply together
+  // (see render()/updateChordAudio) so both default to 1 and combine
+  // to the same 1x baseline until either is moved.
+  { key: 'masterTimeFast', label: 'Master Time (Fast)', min: 1, max: 1000, def: 1, step: 1, digits: 2, log: true },
+  // A plain 0-1 multiplier on every Chord/Chord 2 detune (see
+  // updateChordAudio): 0 zeroes out all detune entirely, 1 leaves each
+  // layer's own detune unscaled.
+  { key: 'masterDetune', label: 'Detune', min: 0, max: 1, def: 1, step: 0.01, digits: 2 },
+];
+
+const lineWidthDef = compactParamDefs.find(d => d.key === 'lineWidth');
+
+// The "Effects" card: a fixed Saturation -> Filter -> Band Pass -> Chorus chain that
+// the Test Tone's stereo mix always passes through (see setupTone/
+// buildEffectsChain/updateEffectsAudio) - each param here just adjusts
+// gains/frequencies on nodes that stay wired permanently.
+const effectsParamDefs = [
+  // A single knob drives both pre-gain (drive) and dry/wet mix together
+  // (see updateEffectsAudio) - turning it up makes the saturation both
+  // harder-driven and more present in the mix, the classic one-knob
+  // "amount" control for this kind of effect.
+  { key: 'saturation', label: 'Saturation', min: 0, max: 100, def: 0, step: 1, digits: 0 },
+  // DJ-style filter: negative = lowpass (cutoff sweeping down as it
+  // goes more negative), positive = highpass (cutoff sweeping up),
+  // exactly 0 = bypass (allpass). snapZero gives the knob a magnetic
+  // "notch" back to 0 (see initValueKnobFromInput) so it's easy to
+  // return to neutral with a mouse.
+  { key: 'filterAmount', label: 'Filter', min: -1, max: 1, def: 0, step: 0.001, digits: 2, snapZero: true },
+  { key: 'chorusVoices', label: 'Chorus', min: 0, max: CHORUS_MAX_VOICES, def: 0, step: 1, digits: 0 },
+  // Fixed Q=2 band-pass, always in series when not bypassed (see
+  // BANDPASS_Q/updateEffectsAudio) - the Bypass button (see
+  // wireBandpassBypass) defaults ON, so this filter is silent by
+  // default until a user deliberately switches it in.
+  { key: 'bandpassFreq', label: 'Band Pass', min: 20, max: 20000, def: 1000, step: 1, digits: 0, log: true },
+];
+
+// Everything under the X/Y Channel cards - the actual test-tone
+// oscillator/chord params. Randomize (see randomizeParams) is scoped
+// to exactly this list, leaving Master, Effects, Trace Hue, and
+// Source/Display untouched.
+const TEST_TONE_PARAMS = [
+  ...channelDefs.flatMap(ch => [ch.freq, ch.phase, ch.phaseSpeed, ch.gain]),
+  ...chordLevelDefs.flatMap(c => [c.gain, c.detuneCoarse, c.detuneFine]),
+];
+
+const ALL_PARAMS = [
+  ...TEST_TONE_PARAMS,
+  ...paramDefs,
+  ...compactParamDefs,
+  ...effectsParamDefs,
+];
+
+const paramDefByKey = {};
+ALL_PARAMS.forEach(d => { paramDefByKey[d.key] = d; });
+
+function defaultParamState(def) {
+  return { value: def.def };
+}
+
+const paramState = {};
+ALL_PARAMS.forEach(d => { paramState[d.key] = defaultParamState(d); });
+
+const paramEls = {};
+
+// Two-segment log mapping for a def.log param that also sets logMid:
+// raw slider space is plain t in [0,1], split into two log-interpolated
+// halves (min->mid over t=[0,0.5], mid->max over t=[0.5,1]) so t=0.5
+// lands exactly on `mid` instead of the plain geometric mean of min/max.
+function logMidToValue(t, min, max, mid) {
+  if (t <= 0.5) return min * Math.pow(mid / min, t / 0.5);
+  return mid * Math.pow(max / mid, (t - 0.5) / 0.5);
+}
+function valueToLogMidT(value, min, max, mid) {
+  if (value <= mid) return 0.5 * (Math.log(value / min) / Math.log(mid / min));
+  return 0.5 + 0.5 * (Math.log(value / mid) / Math.log(max / mid));
+}
+
+// Like logMidToValue/valueToLogMidT, but for a range whose minimum is
+// exactly 0 (can't be log-interpolated, log(0) is undefined): the
+// bottom half (t=[0,0.5]) ramps 0->mid linearly, the top half
+// (t=[0.5,1]) continues mid->max logarithmically.
+function zeroLogToValue(t, max, mid) {
+  if (t <= 0.5) return mid * (t / 0.5);
+  return mid * Math.pow(max / mid, (t - 0.5) / 0.5);
+}
+function valueToZeroLogT(value, max, mid) {
+  if (value <= mid) return 0.5 * (value / mid);
+  return 0.5 + 0.5 * (Math.log(value / mid) / Math.log(max / mid));
+}
+
+function knobHTML(id, min, max, step, val, snapZero) {
+  return `
+      <div class="knob-wrap">
+        <input type="range" id="${id}" class="knob-hidden-input" min="${min}" max="${max}" step="${step}" value="${val}"${snapZero ? ' data-snap-zero="1"' : ''}>
+        <div class="knob-dial${snapZero ? ' has-notch' : ''}" data-knob-for="${id}"><div class="knob-indicator"></div></div>
+      </div>`;
+}
+
+function paramRowsHTML(def) {
+  let sliderMin, sliderMax, sliderVal, sliderStep;
+  if (def.zeroLogMid) {
+    sliderMin = 0; sliderMax = 1; sliderStep = 0.001;
+    sliderVal = valueToZeroLogT(def.def, def.max, def.zeroLogMid);
+  } else if (def.logMid) {
+    sliderMin = 0; sliderMax = 1; sliderStep = 0.001;
+    sliderVal = valueToLogMidT(def.def, def.min, def.max, def.logMid);
+  } else {
+    sliderMin = def.log ? Math.log10(def.min) : def.min;
+    sliderMax = def.log ? Math.log10(def.max) : def.max;
+    sliderVal = def.log ? Math.log10(def.def) : def.def;
+    sliderStep = def.log ? 0.001 : def.step;
+  }
+  return `
+    <div class="row">
+      <label for="${def.key}_value">${def.label}</label>
+      ${knobHTML(`${def.key}_value`, sliderMin, sliderMax, sliderStep, sliderVal, def.snapZero)}
+      <span class="readout" id="${def.key}_valueVal">${def.def.toFixed(def.digits)}</span>
+    </div>`;
+}
+
+function buildParamBlock(def) {
+  const fs = document.createElement('fieldset');
+  fs.className = 'group param-block';
+  fs.innerHTML = `<legend>${def.blockLabel || def.label}</legend>${paramRowsHTML(def)}`;
+  return fs;
+}
+
+function wireParamBlock(def) {
+  const st = paramState[def.key];
+  const get = (suffix) => document.getElementById(`${def.key}${suffix}`);
+  const pe = { valueEl: get('_value'), valueVal: get('_valueVal') };
+  paramEls[def.key] = pe;
+
+  pe.valueEl.addEventListener('input', () => {
+    const raw = parseFloat(pe.valueEl.value);
+    st.value = def.zeroLogMid ? zeroLogToValue(raw, def.max, def.zeroLogMid)
+      : def.logMid ? logMidToValue(raw, def.min, def.max, def.logMid)
+      : def.log ? Math.pow(10, raw) : raw;
+    pe.valueVal.textContent = st.value.toFixed(def.digits);
+  });
+}
+
+function chordLevelHTML(c) {
+  return `
+    <div class="subhead">${c.levelLabel}</div>
+    <div class="row checks">
+      <label class="check"><input type="checkbox" id="${c.prefix}_enabled"> Tone Enable</label>
+    </div>
+    <div id="${c.prefix}_body" hidden>
+      <div class="row">
+        <label for="${c.prefix}_function">Function</label>
+        <div id="${c.prefix}_function" class="knob-select"></div>
+      </div>
+      <div class="row">
+        <label for="${c.prefix}_wave">Wave</label>
+        <div id="${c.prefix}_wave" class="knob-select"></div>
+      </div>
+      ${paramRowsHTML(c.gain)}
+      <div class="row">
+        <label for="${c.prefix}_multiple">Multiple</label>
+        <div id="${c.prefix}_multiple" class="knob-select"></div>
+      </div>
+      <div class="row">
+        <label for="${c.prefix}_divide">Divide</label>
+        <div id="${c.prefix}_divide" class="knob-select"></div>
+      </div>
+      ${paramRowsHTML(c.detuneCoarse)}
+      ${paramRowsHTML(c.detuneFine)}
+    </div>
+  `;
+}
+
+// The Gain knob doubles as FM modulation depth when Function is
+// "Modulate" (see updateChordAudio) - relabel it so that's not
+// mysterious, since "Gain" wouldn't mean much for a tone that never
+// reaches the mix bus.
+function updateGainLabel(refs) {
+  if (refs.gainLabelEl) refs.gainLabelEl.textContent = refs.functionEl.value === 'modulate' ? 'Mod Depth' : 'Gain';
+}
+
+function wireChordLevel(c) {
+  wireParamBlock(c.gain);
+  wireParamBlock(c.detuneCoarse);
+  wireParamBlock(c.detuneFine);
+
+  const enabledEl = document.getElementById(`${c.prefix}_enabled`);
+  const bodyEl = document.getElementById(`${c.prefix}_body`);
+  const functionEl = document.getElementById(`${c.prefix}_function`);
+  const waveEl = document.getElementById(`${c.prefix}_wave`);
+  const multipleEl = document.getElementById(`${c.prefix}_multiple`);
+  const divideEl = document.getElementById(`${c.prefix}_divide`);
+  const gainLabelEl = document.querySelector(`label[for="${c.gain.key}_value"]`);
+  const refs = { enabledEl, bodyEl, functionEl, waveEl, multipleEl, divideEl, gainLabelEl };
+  chordEls[c.prefix] = refs;
+
+  // Chord: additive, feeds the mix bus like before. Modulate: this
+  // oscillator instead frequency-modulates the "mother" tone it's
+  // chained from (see setupTone's motherOsc wiring and
+  // updateChordAudio) - the classic modular-synth patch of one
+  // oscillator's output, through a depth attenuator, into another
+  // oscillator's pitch CV.
+  initSelectKnob(functionEl, [
+    { value: 'chord', label: 'Chord' },
+    { value: 'modulate', label: 'Modulate' },
+  ], 'chord');
+  initSelectKnob(waveEl, WAVE_OPTIONS.map(w => ({ value: w, label: w[0].toUpperCase() + w.slice(1) })), 'sine');
+  initSelectKnob(multipleEl, MULTIPLE_OPTIONS.map(o => ({ value: String(o.v), label: o.l })), '1');
+  initSelectKnob(divideEl, DIVIDE_OPTIONS.map(o => ({ value: String(o.v), label: o.l })), '1');
+  updateGainLabel(refs);
+
+  enabledEl.addEventListener('change', () => { bodyEl.hidden = !enabledEl.checked; });
+  functionEl.addEventListener('change', () => updateGainLabel(refs));
+  waveEl.addEventListener('change', () => {
+    const osc = current[`${c.prefix}Osc`];
+    if (osc) osc.type = waveEl.value;
+  });
+}
+
+function mountChannelBlock(ch) {
+  const fs = document.createElement('fieldset');
+  fs.className = 'group param-block';
+  const myChordLevels = chordLevelDefs.filter(c => c.chan === ch.chanKey);
+  fs.innerHTML = `
+    <legend>${ch.label}</legend>
+    <div class="row">
+      <label for="${ch.waveKey}">Wave</label>
+      <div id="${ch.waveKey}" class="knob-select"></div>
+    </div>
+    ${paramRowsHTML(ch.freq)}
+    ${paramRowsHTML(ch.gain)}
+    ${paramRowsHTML(ch.phase)}
+    ${paramRowsHTML(ch.phaseSpeed)}
+    ${myChordLevels.map(chordLevelHTML).join('')}
+  `;
+  els.toneGroup.appendChild(fs);
+  wireParamBlock(ch.freq);
+  wireParamBlock(ch.gain);
+  wireParamBlock(ch.phase);
+  wireParamBlock(ch.phaseSpeed);
+  myChordLevels.forEach(wireChordLevel);
+
+  const waveEl = document.getElementById(ch.waveKey);
+  initSelectKnob(waveEl, WAVE_OPTIONS.map(w => ({ value: w, label: w[0].toUpperCase() + w.slice(1) })), 'sine');
+  waveEl.addEventListener('change', () => {
+    const osc = ch.chanKey === 'X' ? current.oscX : current.oscY;
+    if (osc) osc.type = waveEl.value;
+  });
+}
+
+function mountParamBlocks() {
+  channelDefs.forEach(mountChannelBlock);
+
+  // Hue and Rotation Speed live in the Source & Display card's
+  // #hueParams slot (see index.html) rather than a card of their own.
+  els.hueParams.innerHTML = `${paramRowsHTML(paramDefByKey.hue)}${paramRowsHTML(paramDefByKey.hueRotationSpeed)}`;
+  wireParamBlock(paramDefByKey.hue);
+  wireParamBlock(paramDefByKey.hueRotationSpeed);
+
+  paramDefs.forEach(def => {
+    if (def.key === 'hue' || def.key === 'hueRotationSpeed') return; // rendered above instead
+    const fs = buildParamBlock(def);
+    els.displayParams.appendChild(fs);
+    wireParamBlock(def);
+    if (def.key === 'rotation') rotationFieldset = fs;
+  });
+
+  const compactFs = document.createElement('fieldset');
+  compactFs.className = 'group param-block';
+  compactFs.innerHTML = `<legend>Master</legend>${compactParamDefs.map(paramRowsHTML).join('')}`;
+  els.compactParams.appendChild(compactFs);
+  compactParamDefs.forEach(wireParamBlock);
+
+  mountEffectsBlock();
+}
+
+// Effects card, pinned to column 3 so it always lands directly below
+// the Master card regardless of which other cards are visible.
+function mountEffectsBlock() {
+  const fs = document.createElement('fieldset');
+  fs.className = 'group param-block effects-block';
+  fs.innerHTML = `
+    <legend>Effects</legend>
+    <div class="subhead">Saturation</div>
+    ${paramRowsHTML(paramDefByKey.saturation)}
+    <div class="subhead">Filter</div>
+    ${paramRowsHTML(paramDefByKey.filterAmount)}
+    <div class="subhead">Chorus</div>
+    ${paramRowsHTML(paramDefByKey.chorusVoices)}
+    <div class="subhead">Band Pass</div>
+    ${paramRowsHTML(paramDefByKey.bandpassFreq)}
+    <div class="row">
+      <label for="bandpassBypassBtn">Bypass</label>
+      <button id="bandpassBypassBtn" class="wide-btn ghost" type="button"></button>
+    </div>
+  `;
+  els.effectsParams.appendChild(fs);
+  effectsParamDefs.forEach(wireParamBlock);
+  wireBandpassBypass();
+}
+
+// Bypass defaults ON (see bandpassBypassed) so the Band Pass filter has
+// no audible effect until a user deliberately switches it in - the
+// button's "active" (orange) state means the filter IS engaged, the
+// opposite of most other active-state buttons in the header, since
+// here "active" describes the audio path, not the button being pressed.
+function syncBandpassBypassBtn() {
+  const btn = document.getElementById('bandpassBypassBtn');
+  btn.classList.toggle('active', !bandpassBypassed);
+  btn.textContent = bandpassBypassed ? 'Bypassed' : 'Engaged';
+}
+
+function wireBandpassBypass() {
+  syncBandpassBypassBtn();
+  document.getElementById('bandpassBypassBtn').addEventListener('click', () => {
+    bandpassBypassed = !bandpassBypassed;
+    syncBandpassBypassBtn();
+  });
+}
+
+function syncParamControlsFromState(def) {
+  const st = paramState[def.key];
+  const pe = paramEls[def.key];
+  pe.valueEl.value = def.zeroLogMid ? valueToZeroLogT(st.value, def.max, def.zeroLogMid)
+    : def.logMid ? valueToLogMidT(st.value, def.min, def.max, def.logMid)
+    : def.log ? Math.log10(st.value) : st.value;
+  pe.valueVal.textContent = st.value.toFixed(def.digits);
+}
+
+function getEffective(def) {
+  const st = paramState[def.key];
+  return Math.min(def.max, Math.max(def.min, st.value));
+}
+
+// ---------------------------------------------------------------
+// Source management: every source exposes analyserX / analyserY
+// (time-domain) that the renderer reads from, regardless of origin.
+// ---------------------------------------------------------------
+const current = { analyserX: null, analyserY: null, teardown: null };
+
+function makeAnalyser(ctxA) {
+  const a = ctxA.createAnalyser();
+  a.fftSize = FFT_SIZE;
+  return a;
+}
+
+// The Web Audio graph only processes nodes reachable from `destination`.
+// Live-capture sources (mic, line out) route through a zero-gain sink so
+// they're still processed without looping their own audio back out.
+function makeSilentSink(ctxA) {
+  const g = ctxA.createGain();
+  g.gain.value = 0;
+  g.connect(ctxA.destination);
+  return g;
+}
+
+// The test tone is meant to be heard, so it gets an actual audible sink
+// instead - kept modest since raw oscillators can be harsh at full volume.
+function makeAudibleSink(ctxA, gainValue = 0.2) {
+  const g = ctxA.createGain();
+  g.gain.value = gainValue;
+  g.connect(ctxA.destination);
+  return g;
+}
+
+function teardownSource() {
+  if (current.teardown) current.teardown();
+  current.teardown = null;
+  current.analyserX = null;
+  current.analyserY = null;
+  current.sink = null;
+  current.merger = null;
+  current.effects = null;
+  current.splitter = null;
+}
+
+// Phase is applied via a DelayNode ahead of each channel's mix bus: a
+// delay of (phase/360) full periods of the current frequency is
+// indistinguishable from a true phase offset for a steady periodic
+// wave, and it's the only way to get a live, continuously adjustable
+// phase out of OscillatorNode.
+const MAX_PHASE_DELAY = 0.1;
+
+// ---------------------------------------------------------------
+// Effects: a fixed Saturation -> Filter -> Band Pass -> Chorus chain sits between
+// the Test Tone's stereo mix and the sink (see setupTone). Every node
+// is built once and stays wired permanently; the Effects knobs (see
+// effectsParamDefs) only ever adjust gains/frequencies on it via
+// updateEffectsAudio (called from render()), never rebuild anything -
+// that's what keeps it "economical".
+// ---------------------------------------------------------------
+
+// The Sat Gain knob is PRE-GAIN into this one fixed WaveShaper curve
+// rather than a curve that gets rebuilt per knob move (expensive) -
+// the classic cheap-distortion trick: drive the signal harder into an
+// already-saturating shape instead of reshaping the curve itself.
+const SAT_DRIVE_MAX = 15;
+
+// Fixed resonance for the Band Pass filter - only its center frequency
+// is user-adjustable (see effectsParamDefs.bandpassFreq).
+const BANDPASS_Q = 2;
+
+// Bypassed by default (see wireEffectsBlock's Bypass button): the Band
+// Pass filter stays permanently wired in the chain either way, this
+// just hard-switches between its dry and wet gain (see
+// updateEffectsAudio) so a bypassed filter has zero effect on the
+// signal rather than being disconnected/reconnected.
+let bandpassBypassed = true;
+
+function makeSaturationCurve() {
+  const n = 1024;
+  const curve = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const x = (i / (n - 1)) * 2 - 1;
+    curve[i] = Math.tanh(x * 2.5);
+  }
+  return curve;
+}
+
+function buildEffectsChain(ac) {
+  const input = ac.createGain();
+
+  // Saturation: input splits into a dry path and a driven+shaped wet
+  // path, recombined at satOutput - Sat Mix is just the dry/wet blend.
+  const satDryGain = ac.createGain();
+  const satInputGain = ac.createGain();
+  const shaper = ac.createWaveShaper();
+  shaper.curve = makeSaturationCurve();
+  shaper.oversample = 'none';
+  const satWetGain = ac.createGain();
+  const satOutput = ac.createGain();
+  input.connect(satDryGain).connect(satOutput);
+  input.connect(satInputGain).connect(shaper).connect(satWetGain).connect(satOutput);
+
+  // Filter: one BiquadFilterNode doing double duty as a DJ-style
+  // filter - see updateEffectsAudio for the lowpass/highpass/bypass
+  // switch driven by the Filter knob's sign.
+  const filterNode = ac.createBiquadFilter();
+  satOutput.connect(filterNode);
+
+  // Band Pass: a fixed Q=2 BiquadFilterNode, hard-switched dry/wet by
+  // the Bypass button (bypassed = dry) instead of ramping - see
+  // updateEffectsAudio. Stays wired at all times either way.
+  const bandpassFilterNode = ac.createBiquadFilter();
+  bandpassFilterNode.type = 'bandpass';
+  bandpassFilterNode.Q.value = BANDPASS_Q;
+  const bandpassDryGain = ac.createGain();
+  const bandpassWetGain = ac.createGain();
+  const bandpassOutput = ac.createGain();
+  filterNode.connect(bandpassDryGain).connect(bandpassOutput);
+  filterNode.connect(bandpassFilterNode).connect(bandpassWetGain).connect(bandpassOutput);
+
+  // Chorus: CHORUS_MAX_VOICES parallel LFO-modulated delay lines stay
+  // wired at all times; the Chorus knob just gates how many of their
+  // voiceGains are open (see updateEffectsAudio) rather than
+  // creating/destroying nodes as the voice count changes.
+  const chorusWetBus = ac.createGain();
+  const chorusMixGain = ac.createGain();
+  const output = ac.createGain();
+  bandpassOutput.connect(output); // dry chorus path, always on
+  const voices = [];
+  for (let i = 0; i < CHORUS_MAX_VOICES; i++) {
+    const lfo = ac.createOscillator();
+    lfo.type = 'sine';
+    lfo.frequency.value = 0.2 + i * 0.09; // staggered rates for a richer blend
+    const depthGain = ac.createGain();
+    depthGain.gain.value = 0.003; // +/-3ms modulation depth
+    const delayNode = ac.createDelay(0.05);
+    delayNode.delayTime.value = 0.02; // 20ms base delay
+    lfo.connect(depthGain).connect(delayNode.delayTime);
+    const voiceGain = ac.createGain();
+    voiceGain.gain.value = 0;
+    bandpassOutput.connect(delayNode).connect(voiceGain).connect(chorusWetBus);
+    lfo.start();
+    voices.push({ lfo, delayNode, voiceGain });
+  }
+  chorusWetBus.connect(chorusMixGain).connect(output);
+
+  return {
+    input, output,
+    satDryGain, satInputGain, satWetGain,
+    filterNode,
+    bandpassFilterNode, bandpassDryGain, bandpassWetGain,
+    chorusMixGain, voices,
+    teardown() {
+      input.disconnect(); satDryGain.disconnect(); satInputGain.disconnect();
+      shaper.disconnect(); satWetGain.disconnect(); satOutput.disconnect();
+      filterNode.disconnect();
+      bandpassFilterNode.disconnect(); bandpassDryGain.disconnect(); bandpassWetGain.disconnect(); bandpassOutput.disconnect();
+      chorusWetBus.disconnect(); chorusMixGain.disconnect();
+      output.disconnect();
+      voices.forEach(v => { v.lfo.stop(); v.lfo.disconnect(); v.delayNode.disconnect(); v.voiceGain.disconnect(); });
+    },
+  };
+}
+
+// Reads the Effects knobs and applies them to the chain built by
+// buildEffectsChain - called every frame from render(), same pattern
+// as updateChordAudio.
+function updateEffectsAudio(eff) {
+  const fx = current.effects;
+  if (!fx) return;
+
+  const driveGain = 1 + (eff.saturation / 100) * (SAT_DRIVE_MAX - 1);
+  const mix = eff.saturation / 100;
+  fx.satInputGain.gain.value = driveGain;
+  fx.satWetGain.gain.value = mix;
+  fx.satDryGain.gain.value = 1 - mix;
+
+  const amt = eff.filterAmount;
+  if (amt < -0.001) {
+    fx.filterNode.type = 'lowpass';
+    fx.filterNode.frequency.value = 20000 * Math.pow(20 / 20000, Math.min(1, -amt));
+  } else if (amt > 0.001) {
+    fx.filterNode.type = 'highpass';
+    fx.filterNode.frequency.value = 20 * Math.pow(20000 / 20, Math.min(1, amt));
+  } else {
+    fx.filterNode.type = 'allpass';
+    fx.filterNode.frequency.value = 1000;
+  }
+  fx.filterNode.Q.value = 0.9;
+
+  fx.bandpassFilterNode.frequency.value = eff.bandpassFreq;
+  fx.bandpassDryGain.gain.value = bandpassBypassed ? 1 : 0;
+  fx.bandpassWetGain.gain.value = bandpassBypassed ? 0 : 1;
+
+  const activeVoices = Math.max(0, Math.min(CHORUS_MAX_VOICES, Math.round(eff.chorusVoices)));
+  fx.voices.forEach((v, i) => {
+    v.voiceGain.gain.value = i < activeVoices ? 1 / Math.sqrt(Math.max(1, activeVoices)) : 0;
+  });
+  fx.chorusMixGain.gain.value = activeVoices > 0 ? 0.6 : 0;
+}
+
+function setupTone() {
+  teardownSource();
+  const ac = getAudioCtx();
+  const oscX = ac.createOscillator();
+  const oscY = ac.createOscillator();
+  const gainX = ac.createGain();
+  const gainY = ac.createGain();
+  const delayX = ac.createDelay(MAX_PHASE_DELAY);
+  const delayY = ac.createDelay(MAX_PHASE_DELAY);
+  const mixX = ac.createGain();
+  const mixY = ac.createGain();
+  const analyserX = makeAnalyser(ac);
+  const analyserY = makeAnalyser(ac);
+  oscX.type = document.getElementById('waveX').value;
+  oscX.frequency.value = paramState.freqX.value;
+  oscY.type = document.getElementById('waveY').value;
+  oscY.frequency.value = paramState.freqY.value;
+  gainX.gain.value = paramState.oscGainX.value;
+  gainY.gain.value = paramState.oscGainY.value;
+  const sink = makeAudibleSink(ac, toneMuted ? 0 : TONE_AUDIBLE_GAIN);
+
+  // Gain is staged on the fundamental BEFORE it reaches the mix bus that
+  // the chord oscillators feed into, so it controls the fundamental's own
+  // level (real audible amplitude, not just a display scale) ahead of
+  // anything the chord layers add - each chord layer has its own gain.
+  oscX.connect(gainX).connect(delayX).connect(mixX);
+  oscY.connect(gainY).connect(delayY).connect(mixY);
+
+  // X plays out the Left channel, Y plays out the Right channel: a
+  // ChannelMergerNode puts each mix bus on its own output channel
+  // before the shared Effects chain (BiquadFilter/WaveShaper/DelayNode
+  // all process each channel independently, so the stereo split
+  // survives the effects untouched).
+  const merger = ac.createChannelMerger(2);
+  mixX.connect(merger, 0, 0);
+  mixY.connect(merger, 0, 1);
+  const fx = buildEffectsChain(ac);
+  merger.connect(fx.input);
+  fx.output.connect(sink);
+
+  // Analysers tap the POST-effects stereo signal (Saturation -> Filter
+  // -> Chorus already applied) so the oscilloscope draws exactly what
+  // gets played rather than the dry pre-effects mix. A ChannelSplitter
+  // is required here since the effected signal is a single 2-channel
+  // stream at this point - each analyser needs its own single channel,
+  // otherwise AnalyserNode's default stereo-to-mono downmix would give
+  // both traces the same L+R sum.
+  const splitter = ac.createChannelSplitter(2);
+  fx.output.connect(splitter);
+  splitter.connect(analyserX, 0);
+  splitter.connect(analyserY, 1);
+
+  oscX.start();
+  oscY.start();
+
+  current.analyserX = analyserX;
+  current.analyserY = analyserY;
+  current.gainX = gainX;
+  current.gainY = gainY;
+  current.delayX = delayX;
+  current.delayY = delayY;
+  current.oscX = oscX;
+  current.oscY = oscY;
+  current.sink = sink;
+  current.merger = merger;
+  current.effects = fx;
+  current.splitter = splitter;
+
+  const extraNodes = [];
+  chordLevelDefs.forEach(c => {
+    const mix = c.chan === 'X' ? mixX : mixY;
+    // The "mother" tone this layer modulates when Function is Modulate:
+    // Chord's mother is the channel fundamental; Chord 2's mother is
+    // Chord's own oscillator (chordLevelDefs is built fundamental ->
+    // Chord -> Chord 2, so the mother already exists on `current` by
+    // the time Chord 2 is processed here).
+    const motherOsc = c.prefix.startsWith('chord2')
+      ? current[`chord${c.chan}Osc`]
+      : (c.chan === 'X' ? oscX : oscY);
+    const osc = ac.createOscillator();
+    // Two parallel gain-staged paths from the same oscillator: chordGain
+    // feeds the mix bus (additive "Chord" function), modGain feeds the
+    // mother's frequency AudioParam directly (a-rate params sum any
+    // connected signal with their own .value, which is exactly the
+    // modular-synth "oscillator -> attenuator -> pitch CV" FM patch).
+    // Only one of the two gains is ever nonzero at a time, based on the
+    // Function knob - see updateChordAudio.
+    const chordGain = ac.createGain();
+    const modGain = ac.createGain();
+    chordGain.gain.value = 0;
+    modGain.gain.value = 0;
+    osc.type = document.getElementById(`${c.prefix}_wave`).value;
+    osc.frequency.value = 440;
+    osc.connect(chordGain).connect(mix);
+    osc.connect(modGain).connect(motherOsc.frequency);
+    osc.start();
+    current[`${c.prefix}Osc`] = osc;
+    current[`${c.prefix}ChordGain`] = chordGain;
+    current[`${c.prefix}ModGain`] = modGain;
+    extraNodes.push(osc, chordGain, modGain);
+  });
+
+  current.teardown = () => {
+    oscX.stop(); oscY.stop();
+    oscX.disconnect(); oscY.disconnect();
+    gainX.disconnect(); gainY.disconnect();
+    delayX.disconnect(); delayY.disconnect();
+    mixX.disconnect(); mixY.disconnect();
+    merger.disconnect();
+    splitter.disconnect();
+    fx.teardown();
+    extraNodes.forEach(n => { if (n.stop) n.stop(); n.disconnect(); });
+  };
+}
+
+// gain=1 -> a modulation index (peak deviation / modulator frequency)
+// of this many, when Function is Modulate - a reasonable range for
+// musical-to-chaotic FM without needing a separate depth control.
+const MOD_INDEX_MAX = 5;
+
+// Walks fundamental -> Chord -> Chord 2 per channel, deriving each
+// layer's frequency from the one before it, and forces disabled
+// layers' gain to 0 rather than stopping their oscillators. Each
+// layer feeds exactly one of two destinations depending on Function:
+// Chord adds into the mix bus, Modulate frequency-modulates its
+// mother tone's pitch (see setupTone's motherOsc/chordGain/modGain).
+function updateChordAudio(eff) {
+  ['X', 'Y'].forEach(chan => {
+    // Master Time dilates the fundamental the same way it dilates the
+    // oscillator itself, so chords stay in their set ratio to it.
+    let prevFreq = (chan === 'X' ? eff.freqX : eff.freqY) * eff.masterTime * eff.masterTimeFast;
+    chordLevelDefs.filter(c => c.chan === chan).forEach(c => {
+      const refs = chordEls[c.prefix];
+      if (!refs) return;
+      const multiple = parseFloat(refs.multipleEl.value);
+      const divide = parseFloat(refs.divideEl.value);
+      // Fine Detune is in cents (1/100 semitone); combine with Coarse
+      // (semitones) into one semitone value before the master Detune knob.
+      const totalDetuneSemitones = eff[c.detuneCoarse.key] + eff[c.detuneFine.key] / 100;
+      const freq = prevFreq * (multiple / divide) * semitoneRatio(totalDetuneSemitones * eff.masterDetune);
+      const osc = current[`${c.prefix}Osc`];
+      const chordGain = current[`${c.prefix}ChordGain`];
+      const modGain = current[`${c.prefix}ModGain`];
+      if (osc) osc.frequency.value = freq;
+      const enabled = refs.enabledEl.checked;
+      const isModulate = refs.functionEl.value === 'modulate';
+      if (chordGain) chordGain.gain.value = (enabled && !isModulate) ? eff[c.gain.key] : 0;
+      if (modGain) modGain.gain.value = (enabled && isModulate) ? eff[c.gain.key] * freq * MOD_INDEX_MAX : 0;
+      prevFreq = freq;
+    });
+  });
+}
+
+// Shared by any live MediaStream-based source (mic, line out): wires the
+// stream into an analyser pair through a silent sink so it's processed
+// without being looped back out to the speakers.
+async function setupLiveSource(getStream, label) {
+  teardownSource();
+  els.liveStatusRow.hidden = false;
+  els.liveStatus.textContent = `Requesting ${label} access...`;
+  const ac = getAudioCtx();
+  try {
+    const stream = await getStream();
+    if (stream.getAudioTracks().length === 0) {
+      stream.getTracks().forEach(t => t.stop());
+      els.liveStatus.textContent = `${label} failed: no audio track was shared.`;
+      return;
+    }
+    // Deliberately NOT stopping the video track: Chrome ties a display-
+    // capture's audio to its video track's lifecycle, so stopping video
+    // early kills the audio capture too. It's just never rendered anywhere,
+    // and teardown() below stops both tracks together when the source
+    // actually changes.
+
+    const src = ac.createMediaStreamSource(stream);
+    const splitter = ac.createChannelSplitter(2);
+    const analyserX = makeAnalyser(ac);
+    const analyserY = makeAnalyser(ac);
+    const sink = makeSilentSink(ac);
+    src.connect(splitter);
+    splitter.connect(analyserX, 0);
+    splitter.connect(analyserY, Math.min(1, src.channelCount - 1));
+    analyserX.connect(sink);
+    analyserY.connect(sink);
+
+    current.analyserX = analyserX;
+    current.analyserY = analyserY;
+    current.teardown = () => { stream.getTracks().forEach(t => t.stop()); src.disconnect(); splitter.disconnect(); };
+    els.liveStatus.textContent = `${label} connected (${src.channelCount}ch).`;
+  } catch (err) {
+    els.liveStatus.textContent = `${label} access failed: ${err.message}`;
+  }
+}
+
+function setupMic() {
+  return setupLiveSource(
+    () => navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+    }),
+    'Microphone'
+  );
+}
+
+// Browsers have no direct "line out" tap; getDisplayMedia's tab/window/
+// screen share (with its audio checkbox) is the closest thing - it lets
+// you capture whatever another tab, browser window, or app is actually
+// playing. systemAudio/selfBrowserSurface are Chrome-only hints (ignored
+// elsewhere): they push the picker toward offering audio for whatever's
+// shared and away from capturing this tab itself, which has nothing to
+// hear from unless the tone is enabled.
+function setupLineOut() {
+  return setupLiveSource(
+    () => navigator.mediaDevices.getDisplayMedia({
+      video: true,
+      audio: true,
+      systemAudio: 'include',
+      selfBrowserSurface: 'exclude',
+    }),
+    'Line Out'
+  );
+}
+
+function setupFile(file) {
+  teardownSource();
+  els.liveStatusRow.hidden = true;
+  if (!file) return;
+  const ac = getAudioCtx();
+  const reader = new FileReader();
+  reader.onload = () => {
+    ac.decodeAudioData(reader.result).then(buffer => {
+      const src = ac.createBufferSource();
+      src.buffer = buffer;
+      src.loop = true;
+      const splitter = ac.createChannelSplitter(2);
+      const analyserX = makeAnalyser(ac);
+      const analyserY = makeAnalyser(ac);
+      src.connect(splitter);
+      splitter.connect(analyserX, 0);
+      splitter.connect(analyserY, Math.min(1, buffer.numberOfChannels - 1));
+      src.connect(ac.destination);
+      src.start();
+
+      current.analyserX = analyserX;
+      current.analyserY = analyserY;
+      current.teardown = () => { src.stop(); src.disconnect(); splitter.disconnect(); };
+    }).catch(err => {
+      els.liveStatusRow.hidden = false;
+      els.liveStatus.textContent = `Could not decode file: ${err.message}`;
+    });
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function applySource(kind) {
+  els.fileRow.hidden = kind !== 'file';
+  els.liveStatusRow.hidden = kind !== 'mic' && kind !== 'lineout';
+  updateVisibility();
+  if (kind === 'tone') setupTone();
+  else if (kind === 'mic') setupMic();
+  else if (kind === 'lineout') setupLineOut();
+  else if (kind === 'file') teardownSource();
+}
+
+// ---------------------------------------------------------------
+// Controls
+// ---------------------------------------------------------------
+els.sourceSelect.addEventListener('change', () => applySource(els.sourceSelect.value));
+els.fileInput.addEventListener('change', () => setupFile(els.fileInput.files[0]));
+els.modeSelect.addEventListener('change', () => { display.mode = els.modeSelect.value; updateVisibility(); });
+els.showGrid.addEventListener('change', () => { display.showGrid = els.showGrid.checked; });
+els.glow.addEventListener('change', () => { display.glow = els.glow.checked; });
+els.invertXY.addEventListener('change', () => { display.invertXY = els.invertXY.checked; });
+
+// Mutes the Test Tone's speaker output only - the analysers tap the
+// signal upstream of the sink, so the trace keeps animating normally.
+els.muteBtn.addEventListener('click', () => {
+  toneMuted = !toneMuted;
+  els.muteBtn.classList.toggle('active', toneMuted);
+  els.muteBtn.textContent = toneMuted ? 'Unmute Tone' : 'Mute Tone';
+  if (current.sink) current.sink.gain.value = toneMuted ? 0 : TONE_AUDIBLE_GAIN;
+});
+
+els.freezeBtn.addEventListener('click', () => {
+  frozen = !frozen;
+  els.freezeBtn.classList.toggle('active', frozen);
+  els.freezeBtn.textContent = frozen ? 'Unfreeze' : 'Freeze';
+});
+
+// Distinct from Freeze: this suspends the AudioContext itself, so the
+// signal (tone/mic/line out/file) actually stops rather than just the
+// display. Suspending pauses every node in the graph, so it works the
+// same regardless of which source is active.
+els.pauseBtn.addEventListener('click', () => {
+  const ac = getAudioCtx();
+  if (ac.state === 'running') {
+    ac.suspend();
+    els.pauseBtn.classList.add('active');
+    els.pauseBtn.textContent = 'Resume Signal';
+  } else if (ac.state === 'suspended') {
+    ac.resume();
+    els.pauseBtn.classList.remove('active');
+    els.pauseBtn.textContent = 'Pause Signal';
+  }
+});
+
+els.resetBtn.addEventListener('click', () => {
+  display.mode = DEFAULTS.mode;
+  display.showGrid = DEFAULTS.showGrid;
+  display.glow = DEFAULTS.glow;
+  display.invertXY = DEFAULTS.invertXY;
+  els.modeSelect.value = DEFAULTS.mode;
+  els.showGrid.checked = DEFAULTS.showGrid;
+  els.glow.checked = DEFAULTS.glow;
+  els.invertXY.checked = DEFAULTS.invertXY;
+
+  document.getElementById('waveX').value = 'sine';
+  document.getElementById('waveY').value = 'sine';
+  if (current.oscX) current.oscX.type = 'sine';
+  if (current.oscY) current.oscY.type = 'sine';
+
+  chordLevelDefs.forEach(c => {
+    const refs = chordEls[c.prefix];
+    if (!refs) return;
+    refs.enabledEl.checked = false;
+    refs.bodyEl.hidden = true;
+    refs.functionEl.value = 'chord';
+    updateGainLabel(refs);
+    refs.waveEl.value = 'sine';
+    refs.multipleEl.value = '1';
+    refs.divideEl.value = '1';
+    const osc = current[`${c.prefix}Osc`];
+    if (osc) osc.type = 'sine';
+  });
+
+  ALL_PARAMS.forEach(def => {
+    Object.assign(paramState[def.key], defaultParamState(def));
+    syncParamControlsFromState(def);
+  });
+
+  bandpassBypassed = true;
+  syncBandpassBypassBtn();
+
+  frozen = false;
+  els.freezeBtn.classList.remove('active');
+  els.freezeBtn.textContent = 'Freeze';
+  toneMuted = false;
+  els.muteBtn.classList.remove('active');
+  els.muteBtn.textContent = 'Mute Tone';
+  if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+  els.pauseBtn.classList.remove('active');
+  els.pauseBtn.textContent = 'Pause Signal';
+  els.sourceSelect.value = DEFAULTS.source;
+  applySource(DEFAULTS.source);
+});
+
+// ---------------------------------------------------------------
+// Rendering
+// ---------------------------------------------------------------
+function drawGrid() {
+  ctx.save();
+  ctx.strokeStyle = 'rgba(60, 100, 70, 0.35)';
+  ctx.lineWidth = 1;
+  const divisions = 10;
+  for (let i = 1; i < divisions; i++) {
+    const p = (i / divisions) * W;
+    ctx.beginPath(); ctx.moveTo(p, 0); ctx.lineTo(p, H); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, p); ctx.lineTo(W, p); ctx.stroke();
+  }
+  ctx.strokeStyle = 'rgba(90, 150, 100, 0.6)';
+  ctx.beginPath(); ctx.moveTo(W / 2, 0); ctx.lineTo(W / 2, H); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(0, H / 2); ctx.lineTo(W, H / 2); ctx.stroke();
+  ctx.restore();
+}
+
+function traceStyle(eff) {
+  // Opacity is inverse to line width: fully opaque at the thinnest
+  // setting, fading linearly down to 50% at the thickest.
+  const widthFrac = (eff.lineWidth - lineWidthDef.min) / (lineWidthDef.max - lineWidthDef.min);
+  const opacity = 1 - 0.5 * widthFrac;
+  const color = `hsla(${eff.hue}, 90%, 60%, ${opacity})`;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = eff.lineWidth;
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  // The new stroke blends onto the still-fading persisted trail with
+  // Add Only (per-channel sum, clamped) instead of normal alpha
+  // compositing, so self-intersections and repeated passes accumulate
+  // brightness instead of just overwriting/dimming what's already there.
+  ctx.globalCompositeOperation = 'lighter';
+  if (display.glow) {
+    ctx.shadowBlur = 14;
+    ctx.shadowColor = color;
+  } else {
+    ctx.shadowBlur = 0;
+  }
+}
+
+function drawWaveform(analyser, eff) {
+  const len = analyser.frequencyBinCount;
+  const data = new Float32Array(len);
+  analyser.getFloatTimeDomainData(data);
+
+  const count = len;
+  const sign = display.invertXY ? -1 : 1;
+  traceStyle(eff);
+  ctx.save();
+  ctx.translate(W / 2, H / 2);
+  ctx.rotate(eff.rotation * Math.PI / 180);
+  ctx.translate(-W / 2, -H / 2);
+  ctx.beginPath();
+  for (let i = 0; i < count; i++) {
+    const x = (i / (count - 1)) * W;
+    const y = H / 2 - data[i] * sign * eff.gain * (H / 2) * 0.9;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawXY(analyserX, analyserY, eff) {
+  const len = Math.min(analyserX.frequencyBinCount, analyserY.frequencyBinCount);
+  const dataX = new Float32Array(len);
+  const dataY = new Float32Array(len);
+  analyserX.getFloatTimeDomainData(dataX);
+  analyserY.getFloatTimeDomainData(dataY);
+
+  const count = len;
+  const sign = display.invertXY ? -1 : 1;
+  traceStyle(eff);
+  ctx.beginPath();
+  for (let i = 0; i < count; i++) {
+    const x = W / 2 + dataX[i] * sign * eff.gain * (W / 2) * 0.9;
+    const y = H / 2 - dataY[i] * sign * eff.gain * (H / 2) * 0.9;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+}
+
+// Spectrum analyzer of the combined X/Y channels, overlaid in the
+// bottom-left corner of the scope: 1/3 of the canvas width, log-spaced
+// across frequency so low-end content (where these test tones live)
+// isn't squeezed into a handful of pixels. Deliberately reuses
+// traceStyle() so the line matches the main trace's hue/composite/glow
+// exactly, and deliberately does NOT do any fading of its own - the
+// whole-canvas Persistence/Hold fade in render() already covers this
+// corner too, so the line inherits both "for free".
+const SPECTROGRAPH_BANDS = 48;
+const SPECTROGRAPH_MIN_FREQ = 20;
+function drawSpectrograph(analyserX, analyserY, eff) {
+  const len = analyserX.frequencyBinCount;
+  const dataX = new Float32Array(len);
+  const dataY = new Float32Array(len);
+  analyserX.getFloatFrequencyData(dataX);
+  analyserY.getFloatFrequencyData(dataY);
+
+  const specW = W / 3;
+  const specH = H / 4;
+  const baseY = H;
+  const nyquist = analyserX.context.sampleRate / 2;
+  const minDb = analyserX.minDecibels;
+  const maxDb = analyserX.maxDecibels;
+
+  traceStyle(eff);
+  ctx.beginPath();
+  let prevBin = 0;
+  for (let i = 0; i <= SPECTROGRAPH_BANDS; i++) {
+    const t = i / SPECTROGRAPH_BANDS;
+    const freq = SPECTROGRAPH_MIN_FREQ * Math.pow(nyquist / SPECTROGRAPH_MIN_FREQ, t);
+    const bin = Math.min(len - 1, Math.round((freq / nyquist) * len));
+    // Log spacing means each step packs many more linear FFT bins
+    // together at high frequencies than at low ones - point-sampling a
+    // single bin per step would make a high-pitched peak easy to miss
+    // entirely just because it falls between two widely-spaced sample
+    // points, making high pitches look artificially quieter than low
+    // ones. Taking the loudest bin across the whole span since the
+    // last sample (falling back to this one bin when steps are dense
+    // enough to land on the same bin, as happens at low frequencies)
+    // represents both ends of the spectrum on equal footing.
+    let peakDb = -Infinity;
+    for (let b = prevBin; b <= bin; b++) {
+      const combined = (dataX[b] + dataY[b]) / 2;
+      if (combined > peakDb) peakDb = combined;
+    }
+    if (!isFinite(peakDb)) peakDb = (dataX[bin] + dataY[bin]) / 2;
+    prevBin = bin + 1;
+    const norm = Math.max(0, Math.min(1, (peakDb - minDb) / (maxDb - minDb)));
+    const x = t * specW;
+    const y = baseY - norm * specH;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+}
+
+// real = elapsed real time (ms, accumulated in frame() below), used
+// only for Hue Rotation Speed so Master Time can't affect it - Master
+// Time affects tone pitch only (see the dilatedFreqX/Y math below).
+// phaseElapsed = elapsed time (ms) already scaled by Master Time (see
+// frame() below), used for X/Y Phase Speed so phase rotation speeds up
+// or slows down together with tone pitch, the same as an LFO would.
+function render(real, phaseElapsed) {
+  const eff = {};
+  ALL_PARAMS.forEach(d => { eff[d.key] = getEffective(d); });
+
+  // Hue rotates continuously around the color wheel (wrapping, not
+  // bouncing). Uses real time so Master Time doesn't speed up or slow
+  // down the rotation.
+  eff.hue = ((eff.hue + eff.hueRotationSpeed * (real / 1000)) % 360 + 360) % 360;
+
+  // X/Y Phase rotate continuously the same way Hue does (wrapping, not
+  // bouncing), but scaled by Master Time since phase is a tone
+  // parameter, not a display one.
+  eff.phaseX = ((eff.phaseX + eff.phaseSpeedX * (phaseElapsed / 1000)) % 360 + 360) % 360;
+  eff.phaseY = ((eff.phaseY + eff.phaseSpeedY * (phaseElapsed / 1000)) % 360 + 360) % 360;
+
+  // Reset composite mode before fading/grid: traceStyle() switches to
+  // 'lighter' for the trace stroke, and that must not leak into these.
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.shadowBlur = 0;
+  // Hold stretches one Persistence decay cycle across (hold+1) frames so
+  // the fade stays continuous instead of freezing then jumping: each
+  // frame applies a fractional-power "survival" factor such that after
+  // (hold+1) frames the cumulative decay equals one full Persistence
+  // multiplication. hold=0 reduces to the original per-frame behavior.
+  const holdFrames = eff.hold + 1;
+  const survival = Math.pow(Math.max(0, Math.min(1, eff.persistence)), 1 / holdFrames);
+  ctx.fillStyle = `rgba(0, 0, 0, ${Math.max(0, 1 - survival)})`;
+  ctx.fillRect(0, 0, W, H);
+
+  if (display.showGrid) drawGrid();
+
+  if (current.analyserX && (display.mode === 'waveform' || current.analyserY)) {
+    if (display.mode === 'xy' && current.analyserY) {
+      drawXY(current.analyserX, current.analyserY, eff);
+    } else {
+      drawWaveform(current.analyserX, eff);
+    }
+  }
+  if (current.analyserX && current.analyserY) {
+    drawSpectrograph(current.analyserX, current.analyserY, eff);
+  }
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.shadowBlur = 0;
+
+  // Master Time dilates the X/Y oscillators: more cycles per real
+  // second at faster-than-1x, fewer at slower - like changing the rate
+  // a tape is running at. Phase's delay is computed from that same
+  // dilated frequency so the phase offset (a fraction of one period)
+  // stays correct at any Master Time.
+  const dilatedFreqX = eff.freqX * eff.masterTime * eff.masterTimeFast;
+  const dilatedFreqY = eff.freqY * eff.masterTime * eff.masterTimeFast;
+  if (current.oscX) current.oscX.frequency.value = dilatedFreqX;
+  if (current.oscY) current.oscY.frequency.value = dilatedFreqY;
+  if (current.gainX) current.gainX.gain.value = eff.oscGainX;
+  if (current.gainY) current.gainY.gain.value = eff.oscGainY;
+  if (current.delayX) current.delayX.delayTime.value = Math.min(MAX_PHASE_DELAY, (eff.phaseX / 360) * (1 / dilatedFreqX));
+  if (current.delayY) current.delayY.delayTime.value = Math.min(MAX_PHASE_DELAY, (eff.phaseY / 360) * (1 / dilatedFreqY));
+  updateChordAudio(eff);
+  updateEffectsAudio(eff);
+}
+
+// Elapsed real time, used only for Hue Rotation Speed (see render()) -
+// Master Time affects tone pitch only, so this accumulator deliberately
+// isn't scaled by it.
+let realTime = 0;
+// Elapsed time already scaled by Master Time, used only for X/Y Phase
+// Speed (see render()) - unlike realTime, this one IS scaled since
+// phase rotation is a tone parameter and should speed up/slow down
+// along with pitch.
+let phaseTime = 0;
+let lastFrameTime = null;
+
+function frame(now) {
+  if (lastFrameTime === null) lastFrameTime = now;
+  const dtMs = Math.min(now - lastFrameTime, 100);
+  lastFrameTime = now;
+  if (!frozen) {
+    realTime += dtMs;
+    phaseTime += dtMs * paramState.masterTime.value * paramState.masterTimeFast.value;
+    render(realTime, phaseTime);
+  }
+  requestAnimationFrame(frame);
+}
+
+// ---------------------------------------------------------------
+// Presets: saves/restores every slider value, wave/multiple/divide
+// selects, chord enable state, and display mode/grid/glow to
+// localStorage, so a favorite interaction can be recalled later.
+// ---------------------------------------------------------------
+const PRESET_STORAGE_KEY = 'oscilloscopeVisualizerPresets';
+
+// Baked into the distribution (exported from a prior session's
+// localStorage) so a fresh browser/device starts with this set already
+// available instead of empty - see loadPresets. Presets span several
+// schema versions of the app (old singular "detune", pre-Divide
+// "multiple"-only chords, pre-FM "function"-less chords, etc.);
+// applyPresetState already tolerates unknown/missing fields per-key
+// (see its `if (!def) return;` and `saved.x || default` fallbacks), so
+// nothing here needs migrating - it round-trips as-is.
+const DEFAULT_PRESETS = [
+  {"id":"1789490218576_axrjck","name":"Lasso","savedAt":1789490218576,"state":{"params":{"freqX":{"value":220,"lfoSpeed":0,"lfoAmount":0},"phaseX":{"value":0,"lfoSpeed":0,"lfoAmount":0},"oscGainX":{"value":1,"lfoSpeed":2.6728217969848598,"lfoAmount":1},"freqY":{"value":221,"lfoSpeed":0,"lfoAmount":0},"phaseY":{"value":0,"lfoSpeed":13.151339959476907,"lfoAmount":0},"oscGainY":{"value":0.9,"lfoSpeed":3.0127979303717876,"lfoAmount":0},"chordX_gain":{"value":0.5,"lfoSpeed":0,"lfoAmount":0},"chordX_detune":{"value":-0.01,"lfoSpeed":0,"lfoAmount":0},"chord2X_gain":{"value":0.5,"lfoSpeed":0,"lfoAmount":0},"chord2X_detune":{"value":0,"lfoSpeed":0,"lfoAmount":0},"chordY_gain":{"value":0.5,"lfoSpeed":0,"lfoAmount":0},"chordY_detune":{"value":0,"lfoSpeed":0,"lfoAmount":0},"chord2Y_gain":{"value":0.5,"lfoSpeed":0,"lfoAmount":0},"chord2Y_detune":{"value":0.04,"lfoSpeed":0,"lfoAmount":0},"rotation":{"value":0,"lfoSpeed":0,"lfoAmount":0},"hue":{"value":90,"lfoSpeed":0,"lfoAmount":0},"hueRotationSpeed":{"value":124,"lfoSpeed":0,"lfoAmount":0},"masterDetune":{"value":1,"lfoSpeed":0,"lfoAmount":0},"persistence":{"value":0.022416542460062305,"lfoSpeed":0,"lfoAmount":0},"hold":{"value":8,"lfoSpeed":0,"lfoAmount":0},"gain":{"value":0.36,"lfoSpeed":0,"lfoAmount":0},"lineWidth":{"value":3.7,"lfoSpeed":0,"lfoAmount":0},"masterTime":{"value":0.09594006315159331,"lfoSpeed":0,"lfoAmount":0},"masterTimeFast":{"value":1,"lfoSpeed":0,"lfoAmount":0}},"waveX":"sine","waveY":"sine","chords":{"chordX":{"enabled":true,"wave":"sine","multiple":"2"},"chord2X":{"enabled":false,"wave":"sine","multiple":"1"},"chordY":{"enabled":false,"wave":"sine","multiple":"1"},"chord2Y":{"enabled":true,"wave":"sine","multiple":"3"}},"display":{"mode":"xy","showGrid":false,"glow":true,"invertXY":false}}},
+  {"id":"1789490535229_19sd7p","name":"Klaxon","savedAt":1789490535229,"state":{"params":{"freqX":{"value":340.57140190148755,"lfoSpeed":0,"lfoAmount":0},"phaseX":{"value":199.26958909576308,"lfoSpeed":0,"lfoAmount":0},"oscGainX":{"value":0.35676228150596156,"lfoSpeed":2.6728217969848598,"lfoAmount":1},"freqY":{"value":145.93593368654786,"lfoSpeed":0,"lfoAmount":0},"phaseY":{"value":195.78295837280555,"lfoSpeed":13.151339959476907,"lfoAmount":0},"oscGainY":{"value":0.41379872501254267,"lfoSpeed":3.0127979303717876,"lfoAmount":0},"chordX_gain":{"value":0.1272788138883506,"lfoSpeed":0,"lfoAmount":0},"chordX_detune":{"value":0.037787044224455085,"lfoSpeed":0,"lfoAmount":0},"chord2X_gain":{"value":0.323878687051675,"lfoSpeed":0,"lfoAmount":0},"chord2X_detune":{"value":-0.00675674049531777,"lfoSpeed":0,"lfoAmount":0},"chordY_gain":{"value":0.8804304168734881,"lfoSpeed":0,"lfoAmount":0},"chordY_detune":{"value":-0.090183601739031,"lfoSpeed":0,"lfoAmount":0},"chord2Y_gain":{"value":0.271306341107605,"lfoSpeed":0,"lfoAmount":0},"chord2Y_detune":{"value":0.11292824556167785,"lfoSpeed":0,"lfoAmount":0},"rotation":{"value":19.612590129183147,"lfoSpeed":0,"lfoAmount":0},"hue":{"value":129.0553777035017,"lfoSpeed":0,"lfoAmount":0},"hueRotationSpeed":{"value":-16,"lfoSpeed":0,"lfoAmount":0},"masterDetune":{"value":6.81619612793774,"lfoSpeed":0,"lfoAmount":0},"persistence":{"value":0.023314308316634096,"lfoSpeed":0,"lfoAmount":0},"hold":{"value":13.987699851146154,"lfoSpeed":0,"lfoAmount":0},"gain":{"value":0.5014500456979458,"lfoSpeed":0,"lfoAmount":0},"lineWidth":{"value":2.9646409637623132,"lfoSpeed":0,"lfoAmount":0},"masterTime":{"value":0.008017426233222559,"lfoSpeed":0,"lfoAmount":0},"masterTimeFast":{"value":130.48943043578453,"lfoSpeed":0,"lfoAmount":0}},"waveX":"square","waveY":"sawtooth","chords":{"chordX":{"enabled":true,"wave":"square","multiple":"3"},"chord2X":{"enabled":false,"wave":"square","multiple":"2"},"chordY":{"enabled":true,"wave":"sawtooth","multiple":"2"},"chord2Y":{"enabled":true,"wave":"triangle","multiple":"0.5"}},"display":{"mode":"xy","showGrid":false,"glow":true,"invertXY":false}}},
+  {"id":"1789490643188_0pxnuq","name":"Sawtooth","savedAt":1789490643188,"state":{"params":{"freqX":{"value":446.20312380692474,"lfoSpeed":0,"lfoAmount":0},"phaseX":{"value":244.62367042077534,"lfoSpeed":0,"lfoAmount":0},"oscGainX":{"value":1.235472518029254,"lfoSpeed":2.6728217969848598,"lfoAmount":1},"freqY":{"value":336.1524324118554,"lfoSpeed":0,"lfoAmount":0},"phaseY":{"value":289.0363186663409,"lfoSpeed":13.151339959476907,"lfoAmount":0},"oscGainY":{"value":0.6594390611491932,"lfoSpeed":3.0127979303717876,"lfoAmount":0},"chordX_gain":{"value":0.058924986208741315,"lfoSpeed":0,"lfoAmount":0},"chordX_detune":{"value":0.18307166730235525,"lfoSpeed":0,"lfoAmount":0},"chord2X_gain":{"value":0.3805655215781587,"lfoSpeed":0,"lfoAmount":0},"chord2X_detune":{"value":0.009999703024266587,"lfoSpeed":0,"lfoAmount":0},"chordY_gain":{"value":0.10675783954163331,"lfoSpeed":0,"lfoAmount":0},"chordY_detune":{"value":0.04255078546465593,"lfoSpeed":0,"lfoAmount":0},"chord2Y_gain":{"value":0.08046614475047531,"lfoSpeed":0,"lfoAmount":0},"chord2Y_detune":{"value":-0.16350983296710708,"lfoSpeed":0,"lfoAmount":0},"rotation":{"value":338.6395996660184,"lfoSpeed":0,"lfoAmount":0},"hue":{"value":163.18723128270076,"lfoSpeed":0,"lfoAmount":0},"hueRotationSpeed":{"value":299.80281440504586,"lfoSpeed":0,"lfoAmount":0},"masterDetune":{"value":5.570875369718943,"lfoSpeed":0,"lfoAmount":0},"persistence":{"value":0.23673416389838772,"lfoSpeed":0,"lfoAmount":0},"hold":{"value":9.715237744837733,"lfoSpeed":0,"lfoAmount":0},"gain":{"value":0.44,"lfoSpeed":0,"lfoAmount":0},"lineWidth":{"value":2.1,"lfoSpeed":0,"lfoAmount":0},"masterTime":{"value":0.1485935642287007,"lfoSpeed":0,"lfoAmount":0},"masterTimeFast":{"value":3.872576449216172,"lfoSpeed":0,"lfoAmount":0}},"waveX":"sawtooth","waveY":"sine","chords":{"chordX":{"enabled":true,"wave":"sine","multiple":"2"},"chord2X":{"enabled":false,"wave":"triangle","multiple":"0.5"},"chordY":{"enabled":true,"wave":"square","multiple":"5"},"chord2Y":{"enabled":true,"wave":"triangle","multiple":"5"}},"display":{"mode":"xy","showGrid":false,"glow":true,"invertXY":false}}},
+  {"id":"1789490659537_7rp52l","name":"Spelling","savedAt":1789490659537,"state":{"params":{"freqX":{"value":276.6391052051607,"lfoSpeed":0,"lfoAmount":0},"phaseX":{"value":306.74296962863343,"lfoSpeed":0,"lfoAmount":0},"oscGainX":{"value":0.3911034990661513,"lfoSpeed":2.6728217969848598,"lfoAmount":1},"freqY":{"value":346.0821574439154,"lfoSpeed":0,"lfoAmount":0},"phaseY":{"value":334.36220373275734,"lfoSpeed":13.151339959476907,"lfoAmount":0},"oscGainY":{"value":1.2267825263284957,"lfoSpeed":3.0127979303717876,"lfoAmount":0},"chordX_gain":{"value":0.9725286141473468,"lfoSpeed":0,"lfoAmount":0},"chordX_detune":{"value":-0.00808983352121842,"lfoSpeed":0,"lfoAmount":0},"chord2X_gain":{"value":0.19437897894936762,"lfoSpeed":0,"lfoAmount":0},"chord2X_detune":{"value":0.12803423694287858,"lfoSpeed":0,"lfoAmount":0},"chordY_gain":{"value":0.7089458584742189,"lfoSpeed":0,"lfoAmount":0},"chordY_detune":{"value":0.08281631181833143,"lfoSpeed":0,"lfoAmount":0},"chord2Y_gain":{"value":0.09825759465633666,"lfoSpeed":0,"lfoAmount":0},"chord2Y_detune":{"value":-0.11927742410350871,"lfoSpeed":0,"lfoAmount":0},"rotation":{"value":237.19144556919304,"lfoSpeed":0,"lfoAmount":0},"hue":{"value":296.3337056559586,"lfoSpeed":0,"lfoAmount":0},"hueRotationSpeed":{"value":-57.65008830716937,"lfoSpeed":0,"lfoAmount":0},"masterDetune":{"value":6.5527341522203635,"lfoSpeed":0,"lfoAmount":0},"persistence":{"value":0.01041928413638209,"lfoSpeed":0,"lfoAmount":0},"hold":{"value":32.43100830119674,"lfoSpeed":0,"lfoAmount":0},"gain":{"value":0.1584613447963808,"lfoSpeed":0,"lfoAmount":0},"lineWidth":{"value":1.6,"lfoSpeed":0,"lfoAmount":0},"masterTime":{"value":0.0015994436795241527,"lfoSpeed":0,"lfoAmount":0},"masterTimeFast":{"value":135.03353224159895,"lfoSpeed":0,"lfoAmount":0}},"waveX":"sine","waveY":"square","chords":{"chordX":{"enabled":true,"wave":"square","multiple":"5"},"chord2X":{"enabled":false,"wave":"square","multiple":"4"},"chordY":{"enabled":true,"wave":"triangle","multiple":"0.5"},"chord2Y":{"enabled":true,"wave":"triangle","multiple":"1"}},"display":{"mode":"xy","showGrid":false,"glow":true,"invertXY":false}}},
+  {"id":"1789491230107_9gqyfq","name":"Messages","savedAt":1789491230107,"state":{"params":{"freqX":{"value":242.20336292562803,"lfoSpeed":0,"lfoAmount":0},"phaseX":{"value":343.9566134725145,"lfoSpeed":0,"lfoAmount":0},"oscGainX":{"value":0.4441487956325668,"lfoSpeed":2.6728217969848598,"lfoAmount":0.059},"freqY":{"value":167,"lfoSpeed":0,"lfoAmount":0},"phaseY":{"value":140.5390471725581,"lfoSpeed":13.151339959476907,"lfoAmount":0},"oscGainY":{"value":1.010858121433383,"lfoSpeed":3.0127979303717876,"lfoAmount":0},"chordX_gain":{"value":0.8061809809104732,"lfoSpeed":0,"lfoAmount":0},"chordX_detune":{"value":-0.1,"lfoSpeed":0,"lfoAmount":0},"chord2X_gain":{"value":0.82,"lfoSpeed":0.464,"lfoAmount":3.723659869529944},"chord2X_detune":{"value":0.12,"lfoSpeed":0,"lfoAmount":0},"chordY_gain":{"value":0.6033301347372769,"lfoSpeed":0,"lfoAmount":0},"chordY_detune":{"value":0.0904675695353685,"lfoSpeed":0,"lfoAmount":0},"chord2Y_gain":{"value":0.10943163619589247,"lfoSpeed":0,"lfoAmount":0},"chord2Y_detune":{"value":0.07580762440355027,"lfoSpeed":0,"lfoAmount":0},"rotation":{"value":216.8403179387259,"lfoSpeed":0,"lfoAmount":0},"hue":{"value":7.285659235213582,"lfoSpeed":0,"lfoAmount":0},"hueRotationSpeed":{"value":-3,"lfoSpeed":0,"lfoAmount":0},"masterDetune":{"value":6.144645387112682,"lfoSpeed":0,"lfoAmount":0},"persistence":{"value":0.20592534605846344,"lfoSpeed":0,"lfoAmount":0},"hold":{"value":12,"lfoSpeed":0,"lfoAmount":0},"gain":{"value":0.29144149896531807,"lfoSpeed":0,"lfoAmount":0},"lineWidth":{"value":2.3,"lfoSpeed":0,"lfoAmount":0},"masterTime":{"value":0.0052360043658575,"lfoSpeed":0,"lfoAmount":0},"masterTimeFast":{"value":14.060475241299136,"lfoSpeed":0,"lfoAmount":0}},"waveX":"triangle","waveY":"sawtooth","chords":{"chordX":{"enabled":true,"wave":"sine","multiple":"2"},"chord2X":{"enabled":true,"wave":"triangle","multiple":"1"},"chordY":{"enabled":true,"wave":"sawtooth","multiple":"2"},"chord2Y":{"enabled":true,"wave":"sine","multiple":"3"}},"display":{"mode":"xy","showGrid":false,"glow":true,"invertXY":false}}},
+  {"id":"1789491819004_lsm8gy","name":"Loom","savedAt":1789491819004,"state":{"params":{"freqX":{"value":47.28684748766998,"lfoSpeed":0,"lfoAmount":0},"phaseX":{"value":179.28387763896083,"lfoSpeed":0,"lfoAmount":0},"oscGainX":{"value":0.360866829405758,"lfoSpeed":0,"lfoAmount":0},"freqY":{"value":62.87023206905076,"lfoSpeed":0,"lfoAmount":0},"phaseY":{"value":272.1382685140712,"lfoSpeed":0,"lfoAmount":0},"oscGainY":{"value":0.16286465303841285,"lfoSpeed":0,"lfoAmount":0},"chordX_gain":{"value":0.5466249640189337,"lfoSpeed":0,"lfoAmount":0},"chordX_detuneCoarse":{"value":-0.8006985398131103,"lfoSpeed":0,"lfoAmount":0},"chordX_detuneFine":{"value":-0.8693424955206661,"lfoSpeed":0,"lfoAmount":0},"chord2X_gain":{"value":0.9291964894192889,"lfoSpeed":0,"lfoAmount":0},"chord2X_detuneCoarse":{"value":-0.051029277307188536,"lfoSpeed":0,"lfoAmount":0},"chord2X_detuneFine":{"value":-0.19993287837586204,"lfoSpeed":0,"lfoAmount":0},"chordY_gain":{"value":0.4913617347457936,"lfoSpeed":0,"lfoAmount":0},"chordY_detuneCoarse":{"value":-0.11819324378556484,"lfoSpeed":0,"lfoAmount":0},"chordY_detuneFine":{"value":-0.7600522909085263,"lfoSpeed":0,"lfoAmount":0},"chord2Y_gain":{"value":0.08814952010499211,"lfoSpeed":0,"lfoAmount":0},"chord2Y_detuneCoarse":{"value":0.19426108642039708,"lfoSpeed":0,"lfoAmount":0},"chord2Y_detuneFine":{"value":-0.5056888111013795,"lfoSpeed":0,"lfoAmount":0},"rotation":{"value":0,"lfoSpeed":0,"lfoAmount":0},"hue":{"value":90,"lfoSpeed":0,"lfoAmount":0},"hueRotationSpeed":{"value":-1,"lfoSpeed":0,"lfoAmount":0},"masterDetune":{"value":1,"lfoSpeed":0,"lfoAmount":0},"persistence":{"value":0.24,"lfoSpeed":0,"lfoAmount":0},"hold":{"value":0,"lfoSpeed":0,"lfoAmount":0},"gain":{"value":1.08,"lfoSpeed":0,"lfoAmount":0},"lineWidth":{"value":1.5,"lfoSpeed":0,"lfoAmount":0},"masterTime":{"value":1,"lfoSpeed":0,"lfoAmount":0},"masterTimeFast":{"value":76.20790100254119,"lfoSpeed":0,"lfoAmount":0}},"waveX":"sawtooth","waveY":"sawtooth","chords":{"chordX":{"enabled":false,"wave":"sine","multiple":"2"},"chord2X":{"enabled":false,"wave":"sawtooth","multiple":"3"},"chordY":{"enabled":true,"wave":"sawtooth","multiple":"0.25"},"chord2Y":{"enabled":false,"wave":"square","multiple":"0.25"}},"display":{"mode":"xy","showGrid":true,"glow":true,"invertXY":false}}},
+  {"id":"1789495363762_lyhds4","name":"Tree Net","savedAt":1789495363762,"state":{"params":{"freqX":{"value":220,"lfoSpeed":0,"lfoAmount":0},"phaseX":{"value":0,"lfoSpeed":0,"lfoAmount":0},"oscGainX":{"value":1.17,"lfoSpeed":0,"lfoAmount":0},"freqY":{"value":330,"lfoSpeed":0,"lfoAmount":0},"phaseY":{"value":0,"lfoSpeed":0,"lfoAmount":0},"oscGainY":{"value":1,"lfoSpeed":0,"lfoAmount":0},"chordX_gain":{"value":0.57,"lfoSpeed":0,"lfoAmount":0},"chordX_detuneCoarse":{"value":0,"lfoSpeed":0,"lfoAmount":0},"chordX_detuneFine":{"value":0.06,"lfoSpeed":0,"lfoAmount":0},"chord2X_gain":{"value":0.5,"lfoSpeed":0,"lfoAmount":0},"chord2X_detuneCoarse":{"value":0,"lfoSpeed":0,"lfoAmount":0},"chord2X_detuneFine":{"value":0,"lfoSpeed":0,"lfoAmount":0},"chordY_gain":{"value":0.5,"lfoSpeed":0,"lfoAmount":0},"chordY_detuneCoarse":{"value":0,"lfoSpeed":0,"lfoAmount":0},"chordY_detuneFine":{"value":0,"lfoSpeed":0,"lfoAmount":0},"chord2Y_gain":{"value":0.5,"lfoSpeed":0,"lfoAmount":0},"chord2Y_detuneCoarse":{"value":0,"lfoSpeed":0,"lfoAmount":0},"chord2Y_detuneFine":{"value":0,"lfoSpeed":0,"lfoAmount":0},"rotation":{"value":0,"lfoSpeed":0,"lfoAmount":0},"hue":{"value":90,"lfoSpeed":0,"lfoAmount":0},"hueRotationSpeed":{"value":0,"lfoSpeed":0,"lfoAmount":0},"masterDetune":{"value":1,"lfoSpeed":0,"lfoAmount":0},"persistence":{"value":0.01,"lfoSpeed":0,"lfoAmount":0},"hold":{"value":7,"lfoSpeed":0,"lfoAmount":0},"gain":{"value":0.43,"lfoSpeed":0,"lfoAmount":0},"lineWidth":{"value":1.5,"lfoSpeed":0,"lfoAmount":0},"masterTime":{"value":0.15848931924611134,"lfoSpeed":0,"lfoAmount":0},"masterTimeFast":{"value":44.56562483975033,"lfoSpeed":0,"lfoAmount":0}},"waveX":"sine","waveY":"sine","chords":{"chordX":{"enabled":true,"function":"modulate","wave":"sawtooth","multiple":"3"},"chord2X":{"enabled":false,"function":"chord","wave":"sine","multiple":"1"},"chordY":{"enabled":true,"function":"chord","wave":"sine","multiple":"2"},"chord2Y":{"enabled":false,"function":"chord","wave":"sine","multiple":"1"}},"display":{"mode":"xy","showGrid":true,"glow":false,"invertXY":false}}},
+  {"id":"1789496631085_7xibkz","name":"Plaid","savedAt":1789496631085,"state":{"params":{"freqX":{"value":171,"lfoSpeed":0,"lfoAmount":0},"phaseX":{"value":192.83977480878698,"lfoSpeed":0.118,"lfoAmount":61.919999999999995},"oscGainX":{"value":1.1293111068434423,"lfoSpeed":0,"lfoAmount":0},"freqY":{"value":342.7072145986935,"lfoSpeed":0,"lfoAmount":0},"phaseY":{"value":236.90865653949388,"lfoSpeed":3.723659869529944,"lfoAmount":97.92},"oscGainY":{"value":0.6342817281935782,"lfoSpeed":0,"lfoAmount":0},"chordX_gain":{"value":0.6457061461873929,"lfoSpeed":0,"lfoAmount":0},"chordX_detuneCoarse":{"value":-0.5115253948854623,"lfoSpeed":0,"lfoAmount":0},"chordX_detuneFine":{"value":-0.3133848899731895,"lfoSpeed":0,"lfoAmount":0},"chord2X_gain":{"value":0.12068338202636975,"lfoSpeed":0,"lfoAmount":0},"chord2X_detuneCoarse":{"value":-0.44035005748512535,"lfoSpeed":0,"lfoAmount":0},"chord2X_detuneFine":{"value":0.9870775275670112,"lfoSpeed":0,"lfoAmount":0},"chordY_gain":{"value":0.707094895793621,"lfoSpeed":0,"lfoAmount":0},"chordY_detuneCoarse":{"value":0.12342626264490919,"lfoSpeed":0,"lfoAmount":0},"chordY_detuneFine":{"value":0.4147073461474968,"lfoSpeed":0,"lfoAmount":0},"chord2Y_gain":{"value":0.348283883183813,"lfoSpeed":0,"lfoAmount":0},"chord2Y_detuneCoarse":{"value":-0.5801301179627518,"lfoSpeed":0,"lfoAmount":0},"chord2Y_detuneFine":{"value":0.6608094353587455,"lfoSpeed":0,"lfoAmount":0},"rotation":{"value":0,"lfoSpeed":0,"lfoAmount":0},"hue":{"value":90,"lfoSpeed":0,"lfoAmount":0},"hueRotationSpeed":{"value":16,"lfoSpeed":0,"lfoAmount":0},"masterDetune":{"value":1,"lfoSpeed":0,"lfoAmount":0},"persistence":{"value":0.1070445858714103,"lfoSpeed":0,"lfoAmount":0},"hold":{"value":6,"lfoSpeed":0,"lfoAmount":0},"gain":{"value":0.69,"lfoSpeed":0,"lfoAmount":0},"lineWidth":{"value":0.5,"lfoSpeed":0,"lfoAmount":0},"masterTime":{"value":0.05128613839913648,"lfoSpeed":0,"lfoAmount":0},"masterTimeFast":{"value":92.04495717531712,"lfoSpeed":0,"lfoAmount":0}},"waveX":"triangle","waveY":"triangle","chords":{"chordX":{"enabled":false,"function":"modulate","wave":"square","multiple":"3"},"chord2X":{"enabled":false,"function":"chord","wave":"sawtooth","multiple":"5"},"chordY":{"enabled":false,"function":"modulate","wave":"sine","multiple":"4"},"chord2Y":{"enabled":false,"function":"chord","wave":"sine","multiple":"1"}},"display":{"mode":"xy","showGrid":false,"glow":true,"invertXY":false}}},
+  {"id":"1789496837478_n57ba5","name":"Chain Link","savedAt":1789496837478,"state":{"params":{"freqX":{"value":49.5687672842533,"lfoSpeed":0,"lfoAmount":0},"phaseX":{"value":132.9127994757353,"lfoSpeed":0,"lfoAmount":0},"oscGainX":{"value":1.1434813457255553,"lfoSpeed":0,"lfoAmount":0},"freqY":{"value":150.1627383012377,"lfoSpeed":0,"lfoAmount":0},"phaseY":{"value":155.2032144319149,"lfoSpeed":0,"lfoAmount":0},"oscGainY":{"value":0.5961851503279012,"lfoSpeed":0,"lfoAmount":0},"chordX_gain":{"value":0.845967533663512,"lfoSpeed":0,"lfoAmount":0},"chordX_detuneCoarse":{"value":0.10437831397548103,"lfoSpeed":0,"lfoAmount":0},"chordX_detuneFine":{"value":0.43759194209521146,"lfoSpeed":0,"lfoAmount":0},"chord2X_gain":{"value":0.2866622901974124,"lfoSpeed":0,"lfoAmount":0},"chord2X_detuneCoarse":{"value":0.9026004770102443,"lfoSpeed":0,"lfoAmount":0},"chord2X_detuneFine":{"value":-0.535503782999188,"lfoSpeed":0,"lfoAmount":0},"chordY_gain":{"value":0.07600986735677362,"lfoSpeed":0,"lfoAmount":0},"chordY_detuneCoarse":{"value":-0.005673990521112948,"lfoSpeed":0,"lfoAmount":0},"chordY_detuneFine":{"value":-0.13169110566346243,"lfoSpeed":0,"lfoAmount":0},"chord2Y_gain":{"value":0.4963251502720306,"lfoSpeed":0,"lfoAmount":0},"chord2Y_detuneCoarse":{"value":0.18684743595993525,"lfoSpeed":0,"lfoAmount":0},"chord2Y_detuneFine":{"value":0.9465447399212596,"lfoSpeed":0,"lfoAmount":0},"rotation":{"value":0,"lfoSpeed":0,"lfoAmount":0},"hue":{"value":90,"lfoSpeed":0,"lfoAmount":0},"hueRotationSpeed":{"value":-1,"lfoSpeed":0,"lfoAmount":0},"masterDetune":{"value":1,"lfoSpeed":0,"lfoAmount":0},"persistence":{"value":0.01,"lfoSpeed":0,"lfoAmount":0},"hold":{"value":60,"lfoSpeed":0,"lfoAmount":0},"gain":{"value":0.25,"lfoSpeed":0,"lfoAmount":0},"lineWidth":{"value":2.7,"lfoSpeed":0,"lfoAmount":0},"masterTime":{"value":0.01233104833228909,"lfoSpeed":0,"lfoAmount":0},"masterTimeFast":{"value":76.20790100254119,"lfoSpeed":0,"lfoAmount":0}},"waveX":"triangle","waveY":"square","chords":{"chordX":{"enabled":true,"function":"chord","wave":"triangle","multiple":"2"},"chord2X":{"enabled":false,"function":"chord","wave":"sawtooth","multiple":"5"},"chordY":{"enabled":false,"function":"chord","wave":"square","multiple":"4"},"chord2Y":{"enabled":true,"function":"chord","wave":"triangle","multiple":"0.5"}},"display":{"mode":"xy","showGrid":false,"glow":false,"invertXY":false}}},
+  {"id":"1789496947998_ti307g","name":"Ripples","savedAt":1789496947998,"state":{"params":{"freqX":{"value":223,"lfoSpeed":0,"lfoAmount":0},"phaseX":{"value":46.244236825811356,"lfoSpeed":0,"lfoAmount":0},"oscGainX":{"value":0.31,"lfoSpeed":0,"lfoAmount":0},"freqY":{"value":33.0304341047986,"lfoSpeed":0,"lfoAmount":0},"phaseY":{"value":242.31316129833144,"lfoSpeed":0,"lfoAmount":0},"oscGainY":{"value":0.4510156463449606,"lfoSpeed":0,"lfoAmount":0},"chordX_gain":{"value":0.5928923878495922,"lfoSpeed":0,"lfoAmount":0},"chordX_detuneCoarse":{"value":0.9544201718085319,"lfoSpeed":0,"lfoAmount":0},"chordX_detuneFine":{"value":-0.07564921147561798,"lfoSpeed":0,"lfoAmount":0},"chord2X_gain":{"value":0.07913968892168932,"lfoSpeed":0,"lfoAmount":0},"chord2X_detuneCoarse":{"value":0.01,"lfoSpeed":0,"lfoAmount":0},"chord2X_detuneFine":{"value":-0.9324784843981102,"lfoSpeed":0,"lfoAmount":0},"chordY_gain":{"value":0.19861558633334364,"lfoSpeed":0,"lfoAmount":0},"chordY_detuneCoarse":{"value":0.7909597906331269,"lfoSpeed":0,"lfoAmount":0},"chordY_detuneFine":{"value":-0.24214211140871011,"lfoSpeed":0,"lfoAmount":0},"chord2Y_gain":{"value":0.6721373467967501,"lfoSpeed":0,"lfoAmount":0},"chord2Y_detuneCoarse":{"value":-0.15880232681721407,"lfoSpeed":0,"lfoAmount":0},"chord2Y_detuneFine":{"value":0.9769956783638178,"lfoSpeed":0,"lfoAmount":0},"rotation":{"value":0,"lfoSpeed":0,"lfoAmount":0},"hue":{"value":216,"lfoSpeed":0,"lfoAmount":0},"hueRotationSpeed":{"value":0,"lfoSpeed":0,"lfoAmount":0},"masterDetune":{"value":1,"lfoSpeed":0,"lfoAmount":0},"persistence":{"value":0.24,"lfoSpeed":0,"lfoAmount":0},"hold":{"value":2,"lfoSpeed":0,"lfoAmount":0},"gain":{"value":1.25,"lfoSpeed":0,"lfoAmount":0},"lineWidth":{"value":1.5,"lfoSpeed":0,"lfoAmount":0},"masterTime":{"value":1,"lfoSpeed":0,"lfoAmount":0},"masterTimeFast":{"value":10.543868963912587,"lfoSpeed":0,"lfoAmount":0}},"waveX":"square","waveY":"triangle","chords":{"chordX":{"enabled":false,"function":"chord","wave":"sawtooth","multiple":"1","divide":"1"},"chord2X":{"enabled":true,"function":"chord","wave":"sawtooth","multiple":"1","divide":"3"},"chordY":{"enabled":false,"function":"chord","wave":"sine","multiple":"4","divide":"4"},"chord2Y":{"enabled":false,"function":"chord","wave":"square","multiple":"2","divide":"7"}},"display":{"mode":"xy","showGrid":false,"glow":true,"invertXY":false}}},
+  {"id":"1789497553348_3kaovi","name":"CRT","savedAt":1789497553348,"state":{"params":{"freqX":{"value":483.2085733578533,"lfoSpeed":0,"lfoAmount":0},"phaseX":{"value":344.1632676340491,"lfoSpeed":0,"lfoAmount":0},"oscGainX":{"value":0.5708726092153857,"lfoSpeed":0,"lfoAmount":0},"freqY":{"value":53.5870166043868,"lfoSpeed":0,"lfoAmount":0},"phaseY":{"value":170.98123498119378,"lfoSpeed":0,"lfoAmount":0},"oscGainY":{"value":0.748245978165344,"lfoSpeed":0,"lfoAmount":0},"chordX_gain":{"value":0.17092677301850534,"lfoSpeed":0,"lfoAmount":0},"chordX_detuneCoarse":{"value":-0.08015617625843063,"lfoSpeed":0,"lfoAmount":0},"chordX_detuneFine":{"value":-0.031844364468333275,"lfoSpeed":0,"lfoAmount":0},"chord2X_gain":{"value":0.3947544802337851,"lfoSpeed":0,"lfoAmount":0},"chord2X_detuneCoarse":{"value":0.8683734535724086,"lfoSpeed":0,"lfoAmount":0},"chord2X_detuneFine":{"value":-0.8647634886310314,"lfoSpeed":0,"lfoAmount":0},"chordY_gain":{"value":0.8831474129288662,"lfoSpeed":0,"lfoAmount":0},"chordY_detuneCoarse":{"value":-0.9203152215872259,"lfoSpeed":0,"lfoAmount":0},"chordY_detuneFine":{"value":0.28245043339789233,"lfoSpeed":0,"lfoAmount":0},"chord2Y_gain":{"value":0.6613553970806823,"lfoSpeed":0,"lfoAmount":0},"chord2Y_detuneCoarse":{"value":0.5037730444052984,"lfoSpeed":0,"lfoAmount":0},"chord2Y_detuneFine":{"value":0.9016292180537606,"lfoSpeed":0,"lfoAmount":0},"rotation":{"value":0,"lfoSpeed":0,"lfoAmount":0},"hue":{"value":15,"lfoSpeed":0,"lfoAmount":0},"hueRotationSpeed":{"value":0,"lfoSpeed":0,"lfoAmount":0},"masterDetune":{"value":1,"lfoSpeed":0,"lfoAmount":0},"persistence":{"value":0.01,"lfoSpeed":0,"lfoAmount":0},"hold":{"value":7,"lfoSpeed":0,"lfoAmount":0},"gain":{"value":0.76,"lfoSpeed":0,"lfoAmount":0},"lineWidth":{"value":2.5,"lfoSpeed":0,"lfoAmount":0},"masterTime":{"value":0.1651961798229015,"lfoSpeed":0,"lfoAmount":0},"masterTimeFast":{"value":10.543868963912587,"lfoSpeed":0,"lfoAmount":0}},"waveX":"square","waveY":"sawtooth","chords":{"chordX":{"enabled":true,"function":"modulate","wave":"square","multiple":"5","divide":"1"},"chord2X":{"enabled":false,"function":"modulate","wave":"sawtooth","multiple":"5","divide":"6"},"chordY":{"enabled":false,"function":"chord","wave":"square","multiple":"2","divide":"1"},"chord2Y":{"enabled":false,"function":"chord","wave":"sawtooth","multiple":"1","divide":"2"}},"display":{"mode":"xy","showGrid":false,"glow":true,"invertXY":false}}},
+  {"id":"1789497770839_sbazec","name":"Box Lightning","savedAt":1789497770839,"state":{"params":{"freqX":{"value":483.2085733578533,"lfoSpeed":0,"lfoAmount":0},"phaseX":{"value":254,"lfoSpeed":0,"lfoAmount":0},"oscGainX":{"value":0.5708726092153857,"lfoSpeed":0,"lfoAmount":0},"freqY":{"value":157,"lfoSpeed":0,"lfoAmount":0},"phaseY":{"value":143,"lfoSpeed":0,"lfoAmount":0},"oscGainY":{"value":0.57,"lfoSpeed":0,"lfoAmount":0},"chordX_gain":{"value":0.17092677301850534,"lfoSpeed":0,"lfoAmount":0},"chordX_detuneCoarse":{"value":-0.67,"lfoSpeed":0,"lfoAmount":0},"chordX_detuneFine":{"value":-0.27,"lfoSpeed":0,"lfoAmount":0},"chord2X_gain":{"value":0.3947544802337851,"lfoSpeed":0,"lfoAmount":0},"chord2X_detuneCoarse":{"value":0.8683734535724086,"lfoSpeed":0,"lfoAmount":0},"chord2X_detuneFine":{"value":-0.8647634886310314,"lfoSpeed":0,"lfoAmount":0},"chordY_gain":{"value":0.8831474129288662,"lfoSpeed":0.427,"lfoAmount":1.1040023665094496},"chordY_detuneCoarse":{"value":-0.9203152215872259,"lfoSpeed":0,"lfoAmount":0},"chordY_detuneFine":{"value":0.28245043339789233,"lfoSpeed":0,"lfoAmount":0},"chord2Y_gain":{"value":0.6613553970806823,"lfoSpeed":0,"lfoAmount":0},"chord2Y_detuneCoarse":{"value":0.5037730444052984,"lfoSpeed":0,"lfoAmount":0},"chord2Y_detuneFine":{"value":0.9016292180537606,"lfoSpeed":0,"lfoAmount":0},"rotation":{"value":0,"lfoSpeed":0,"lfoAmount":0},"hue":{"value":15,"lfoSpeed":0,"lfoAmount":0},"hueRotationSpeed":{"value":360,"lfoSpeed":0,"lfoAmount":0},"masterDetune":{"value":1,"lfoSpeed":0,"lfoAmount":0},"persistence":{"value":0.01,"lfoSpeed":0,"lfoAmount":0},"hold":{"value":7,"lfoSpeed":0,"lfoAmount":0},"gain":{"value":0.76,"lfoSpeed":0,"lfoAmount":0},"lineWidth":{"value":2.5,"lfoSpeed":0,"lfoAmount":0},"masterTime":{"value":0.03357376142429547,"lfoSpeed":0,"lfoAmount":0},"masterTimeFast":{"value":10.543868963912587,"lfoSpeed":0,"lfoAmount":0}},"waveX":"square","waveY":"square","chords":{"chordX":{"enabled":true,"function":"modulate","wave":"triangle","multiple":"1","divide":"2"},"chord2X":{"enabled":false,"function":"modulate","wave":"sawtooth","multiple":"5","divide":"6"},"chordY":{"enabled":true,"function":"modulate","wave":"sine","multiple":"1","divide":"1"},"chord2Y":{"enabled":true,"function":"modulate","wave":"sawtooth","multiple":"2","divide":"7"}},"display":{"mode":"xy","showGrid":false,"glow":true,"invertXY":false}}},
+  {"id":"1789498097578_fq3ru9","name":"Talking","savedAt":1789498097578,"state":{"params":{"freqX":{"value":105,"lfoSpeed":0,"lfoAmount":0},"phaseX":{"value":99.23699888034716,"lfoSpeed":0,"lfoAmount":0},"oscGainX":{"value":0.91,"lfoSpeed":0,"lfoAmount":0},"freqY":{"value":314.58336123629226,"lfoSpeed":0,"lfoAmount":0},"phaseY":{"value":80.28834399881212,"lfoSpeed":0,"lfoAmount":0},"oscGainY":{"value":0.951954327755574,"lfoSpeed":0,"lfoAmount":0},"chordX_gain":{"value":0.5311801414822165,"lfoSpeed":0.164,"lfoAmount":0.127},"chordX_detuneCoarse":{"value":0,"lfoSpeed":0,"lfoAmount":0},"chordX_detuneFine":{"value":-0.04,"lfoSpeed":0,"lfoAmount":0},"chord2X_gain":{"value":0.04,"lfoSpeed":0.345,"lfoAmount":0.418},"chord2X_detuneCoarse":{"value":1,"lfoSpeed":0,"lfoAmount":0},"chord2X_detuneFine":{"value":-0.22561004652584415,"lfoSpeed":0,"lfoAmount":0},"chordY_gain":{"value":0.41380285255555205,"lfoSpeed":0.354,"lfoAmount":1.4824156947621712},"chordY_detuneCoarse":{"value":-0.78,"lfoSpeed":0,"lfoAmount":0},"chordY_detuneFine":{"value":-0.0291482736803661,"lfoSpeed":0,"lfoAmount":0},"chord2Y_gain":{"value":0.5,"lfoSpeed":0.114,"lfoAmount":50},"chord2Y_detuneCoarse":{"value":-0.07,"lfoSpeed":0,"lfoAmount":0},"chord2Y_detuneFine":{"value":-0.0062488024824693955,"lfoSpeed":0,"lfoAmount":0},"rotation":{"value":0,"lfoSpeed":0,"lfoAmount":0},"hue":{"value":15,"lfoSpeed":0,"lfoAmount":0},"hueRotationSpeed":{"value":360,"lfoSpeed":0,"lfoAmount":0},"masterDetune":{"value":1,"lfoSpeed":0,"lfoAmount":0},"persistence":{"value":0.01,"lfoSpeed":0,"lfoAmount":0},"hold":{"value":7,"lfoSpeed":0,"lfoAmount":0},"gain":{"value":0.76,"lfoSpeed":0,"lfoAmount":0},"lineWidth":{"value":2.5,"lfoSpeed":0,"lfoAmount":0},"masterTime":{"value":0.0449779854893288,"lfoSpeed":0,"lfoAmount":0},"masterTimeFast":{"value":36.982817978026624,"lfoSpeed":0,"lfoAmount":0}},"waveX":"sawtooth","waveY":"triangle","chords":{"chordX":{"enabled":true,"function":"modulate","wave":"sine","multiple":"2","divide":"8"},"chord2X":{"enabled":true,"function":"modulate","wave":"triangle","multiple":"4","divide":"1"},"chordY":{"enabled":true,"function":"modulate","wave":"triangle","multiple":"1","divide":"5"},"chord2Y":{"enabled":true,"function":"modulate","wave":"sawtooth","multiple":"4","divide":"4"}},"display":{"mode":"xy","showGrid":false,"glow":true,"invertXY":false}}},
+  {"id":"1789500877864_nbygec","name":"Tesseract","savedAt":1789500877864,"state":{"params":{"freqX":{"value":220},"phaseX":{"value":0},"oscGainX":{"value":1},"freqY":{"value":330},"phaseY":{"value":0},"oscGainY":{"value":1},"chordX_gain":{"value":0.5},"chordX_detuneCoarse":{"value":0},"chordX_detuneFine":{"value":0.12},"chord2X_gain":{"value":0.5},"chord2X_detuneCoarse":{"value":0},"chord2X_detuneFine":{"value":0},"chordY_gain":{"value":0.5},"chordY_detuneCoarse":{"value":0},"chordY_detuneFine":{"value":0},"chord2Y_gain":{"value":0.5},"chord2Y_detuneCoarse":{"value":0},"chord2Y_detuneFine":{"value":0},"rotation":{"value":0},"hue":{"value":90},"hueRotationSpeed":{"value":62},"persistence":{"value":0.01},"hold":{"value":0},"gain":{"value":0.69},"lineWidth":{"value":1.5},"masterTime":{"value":0.14387985782558455},"masterTimeFast":{"value":142.8893958511102},"masterDetune":{"value":0.22}},"waveX":"sine","waveY":"sine","chords":{"chordX":{"enabled":true,"function":"modulate","wave":"sine","multiple":"5","divide":"8"},"chord2X":{"enabled":false,"function":"chord","wave":"sine","multiple":"1","divide":"1"},"chordY":{"enabled":false,"function":"chord","wave":"sine","multiple":"1","divide":"1"},"chord2Y":{"enabled":false,"function":"chord","wave":"sine","multiple":"1","divide":"1"}},"display":{"mode":"xy","showGrid":false,"glow":true,"invertXY":false}}},
+  {"id":"1789502964591_a5nigk","name":"Power Station","savedAt":1789502964591,"state":{"params":{"freqX":{"value":220},"phaseX":{"value":0},"oscGainX":{"value":1},"freqY":{"value":330},"phaseY":{"value":360},"oscGainY":{"value":1},"chordX_gain":{"value":0.5},"chordX_detuneCoarse":{"value":0},"chordX_detuneFine":{"value":0.25},"chord2X_gain":{"value":0.5},"chord2X_detuneCoarse":{"value":0},"chord2X_detuneFine":{"value":0},"chordY_gain":{"value":0},"chordY_detuneCoarse":{"value":0.17},"chordY_detuneFine":{"value":0},"chord2Y_gain":{"value":0.5},"chord2Y_detuneCoarse":{"value":0},"chord2Y_detuneFine":{"value":0},"rotation":{"value":0},"hue":{"value":90},"hueRotationSpeed":{"value":0},"persistence":{"value":0.24},"hold":{"value":0},"gain":{"value":0.2},"lineWidth":{"value":1.5},"masterTime":{"value":0.4709773263969529},"masterTimeFast":{"value":1},"masterDetune":{"value":0},"saturationGain":{"value":88},"saturationMix":{"value":96},"filterAmount":{"value":-0.091},"chorusVoices":{"value":4}},"waveX":"sine","waveY":"sine","chords":{"chordX":{"enabled":true,"function":"modulate","wave":"sine","multiple":"3","divide":"2"},"chord2X":{"enabled":false,"function":"chord","wave":"sine","multiple":"1","divide":"1"},"chordY":{"enabled":false,"function":"modulate","wave":"triangle","multiple":"8","divide":"5"},"chord2Y":{"enabled":false,"function":"chord","wave":"sine","multiple":"1","divide":"1"}},"display":{"mode":"xy","showGrid":false,"glow":true,"invertXY":false}}},
+  {"id":"1789508304154_j4ripd","name":"Lava Lamp","savedAt":1789508304154,"state":{"params":{"freqX":{"value":220},"phaseX":{"value":44},"phaseSpeedX":{"value":0},"oscGainX":{"value":1},"freqY":{"value":330},"phaseY":{"value":237},"phaseSpeedY":{"value":0},"oscGainY":{"value":1},"chordX_gain":{"value":1},"chordX_detuneCoarse":{"value":0},"chordX_detuneFine":{"value":-0.02},"chord2X_gain":{"value":0.5},"chord2X_detuneCoarse":{"value":0},"chord2X_detuneFine":{"value":0},"chordY_gain":{"value":0.5},"chordY_detuneCoarse":{"value":0},"chordY_detuneFine":{"value":0.01},"chord2Y_gain":{"value":0.5},"chord2Y_detuneCoarse":{"value":0},"chord2Y_detuneFine":{"value":0},"rotation":{"value":0},"hue":{"value":223},"hueRotationSpeed":{"value":0},"persistence":{"value":0.01},"hold":{"value":0},"gain":{"value":0.69},"lineWidth":{"value":1.5},"masterTime":{"value":0.15631476426409538},"masterTimeFast":{"value":189.67059212111465},"masterDetune":{"value":0.05},"saturation":{"value":0},"filterAmount":{"value":0},"chorusVoices":{"value":0},"bandpassFreq":{"value":191.43881425896828}},"waveX":"sine","waveY":"sine","chords":{"chordX":{"enabled":true,"function":"modulate","wave":"sine","multiple":"5","divide":"10"},"chord2X":{"enabled":false,"function":"chord","wave":"sine","multiple":"1","divide":"1"},"chordY":{"enabled":true,"function":"modulate","wave":"sine","multiple":"1","divide":"3"},"chord2Y":{"enabled":false,"function":"chord","wave":"sine","multiple":"1","divide":"1"}},"display":{"mode":"xy","showGrid":false,"glow":true,"invertXY":false},"bandpassBypassed":true}},
+  {"id":"1789508465023_lsqlqb","name":"Corkscrew","savedAt":1789508465023,"state":{"params":{"freqX":{"value":483.2085733578533},"phaseX":{"value":344.1632676340491},"phaseSpeedX":{"value":0},"oscGainX":{"value":0.5708726092153857},"freqY":{"value":53.5870166043868},"phaseY":{"value":170.98123498119378},"phaseSpeedY":{"value":0},"oscGainY":{"value":0.748245978165344},"chordX_gain":{"value":0.17092677301850534},"chordX_detuneCoarse":{"value":-0.08015617625843063},"chordX_detuneFine":{"value":-0.031844364468333275},"chord2X_gain":{"value":0.3947544802337851},"chord2X_detuneCoarse":{"value":0.8683734535724086},"chord2X_detuneFine":{"value":-0.8647634886310314},"chordY_gain":{"value":0.8831474129288662},"chordY_detuneCoarse":{"value":-0.9203152215872259},"chordY_detuneFine":{"value":0.28245043339789233},"chord2Y_gain":{"value":0.6613553970806823},"chord2Y_detuneCoarse":{"value":0.5037730444052984},"chord2Y_detuneFine":{"value":0.9016292180537606},"rotation":{"value":0},"hue":{"value":15},"hueRotationSpeed":{"value":0},"persistence":{"value":0.01},"hold":{"value":7},"gain":{"value":0.96},"lineWidth":{"value":2.5},"masterTime":{"value":0.1651961798229015},"masterTimeFast":{"value":10.543868963912587},"masterDetune":{"value":1},"saturation":{"value":0},"filterAmount":{"value":-0.582},"chorusVoices":{"value":0},"bandpassFreq":{"value":592.9662779048667}},"waveX":"square","waveY":"sawtooth","chords":{"chordX":{"enabled":true,"function":"modulate","wave":"square","multiple":"5","divide":"1"},"chord2X":{"enabled":false,"function":"modulate","wave":"sawtooth","multiple":"5","divide":"6"},"chordY":{"enabled":false,"function":"chord","wave":"square","multiple":"2","divide":"1"},"chord2Y":{"enabled":false,"function":"chord","wave":"sawtooth","multiple":"1","divide":"2"}},"display":{"mode":"xy","showGrid":false,"glow":true,"invertXY":false},"bandpassBypassed":true}}
+];
+
+function loadPresets() {
+  try {
+    const raw = localStorage.getItem(PRESET_STORAGE_KEY);
+    if (raw === null) return JSON.parse(JSON.stringify(DEFAULT_PRESETS));
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (err) {
+    return JSON.parse(JSON.stringify(DEFAULT_PRESETS));
+  }
+}
+
+function savePresetsToStorage() {
+  try {
+    localStorage.setItem(PRESET_STORAGE_KEY, JSON.stringify(presets));
+  } catch (err) { /* storage unavailable or full - preset just won't persist */ }
+}
+
+let presets = loadPresets();
+
+function capturePresetState() {
+  const params = {};
+  ALL_PARAMS.forEach(d => {
+    params[d.key] = { value: paramState[d.key].value };
+  });
+  const chords = {};
+  chordLevelDefs.forEach(c => {
+    const refs = chordEls[c.prefix];
+    chords[c.prefix] = {
+      enabled: refs ? refs.enabledEl.checked : false,
+      function: refs ? refs.functionEl.value : 'chord',
+      wave: refs ? refs.waveEl.value : 'sine',
+      multiple: refs ? refs.multipleEl.value : '1',
+      divide: refs ? refs.divideEl.value : '1',
+    };
+  });
+  return {
+    params,
+    waveX: document.getElementById('waveX').value,
+    waveY: document.getElementById('waveY').value,
+    chords,
+    display: { mode: display.mode, showGrid: display.showGrid, glow: display.glow, invertXY: display.invertXY },
+    bandpassBypassed,
+  };
+}
+
+function applyPresetState(state) {
+  Object.keys(state.params).forEach(key => {
+    const def = paramDefByKey[key];
+    if (!def) return; // ignore params from an older/newer version of the app
+    Object.assign(paramState[key], state.params[key]);
+    syncParamControlsFromState(def);
+  });
+
+  document.getElementById('waveX').value = state.waveX;
+  document.getElementById('waveY').value = state.waveY;
+  if (current.oscX) current.oscX.type = state.waveX;
+  if (current.oscY) current.oscY.type = state.waveY;
+
+  chordLevelDefs.forEach(c => {
+    const saved = state.chords && state.chords[c.prefix];
+    const refs = chordEls[c.prefix];
+    if (!saved || !refs) return;
+    refs.enabledEl.checked = saved.enabled;
+    refs.bodyEl.hidden = !saved.enabled;
+    refs.functionEl.value = saved.function || 'chord';
+    updateGainLabel(refs);
+    refs.waveEl.value = saved.wave;
+    refs.multipleEl.value = saved.multiple;
+    refs.divideEl.value = saved.divide || '1';
+    const osc = current[`${c.prefix}Osc`];
+    if (osc) osc.type = saved.wave;
+  });
+
+  if (state.display) {
+    display.mode = state.display.mode;
+    display.showGrid = state.display.showGrid;
+    display.glow = state.display.glow;
+    display.invertXY = !!state.display.invertXY;
+    els.modeSelect.value = state.display.mode;
+    els.showGrid.checked = state.display.showGrid;
+    els.glow.checked = state.display.glow;
+    els.invertXY.checked = display.invertXY;
+    updateVisibility();
+  }
+
+  // Older presets saved before Bypass existed have no such field -
+  // default to bypassed (matches a fresh session) rather than throwing.
+  bandpassBypassed = state.bandpassBypassed !== undefined ? state.bandpassBypassed : true;
+  syncBandpassBypassBtn();
+}
+
+function randomInRange(def) {
+  if (def.log) {
+    const lo = Math.log10(def.min), hi = Math.log10(def.max);
+    return Math.pow(10, lo + Math.random() * (hi - lo));
+  }
+  return def.min + Math.random() * (def.max - def.min);
+}
+
+function randomChoice(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+
+// Randomizes only the test-tone params (see TEST_TONE_PARAMS): X/Y
+// channel freq/phase/gain and chord gain/detune, plus the X/Y and
+// daughter tone wave shapes, frequency multiples/divides, and Tone
+// Enable on/off. Everything else - Master, Trace Hue, tone Function
+// (Chord/Modulate), source, and display mode - is left alone so a
+// randomize pass stays a surprise on the current patch's sound rather
+// than reshuffling the whole visual/routing setup too.
+function randomizeParams() {
+  TEST_TONE_PARAMS.forEach(def => {
+    paramState[def.key].value = randomInRange(def);
+    syncParamControlsFromState(def);
+  });
+
+  const waveX = randomChoice(WAVE_OPTIONS);
+  const waveY = randomChoice(WAVE_OPTIONS);
+  document.getElementById('waveX').value = waveX;
+  document.getElementById('waveY').value = waveY;
+  if (current.oscX) current.oscX.type = waveX;
+  if (current.oscY) current.oscY.type = waveY;
+
+  chordLevelDefs.forEach(c => {
+    const refs = chordEls[c.prefix];
+    if (!refs) return;
+    const wave = randomChoice(WAVE_OPTIONS);
+    refs.waveEl.value = wave;
+    refs.multipleEl.value = randomChoice(MULTIPLE_OPTIONS).v;
+    refs.divideEl.value = randomChoice(DIVIDE_OPTIONS).v;
+    refs.enabledEl.checked = Math.random() < 0.5;
+    refs.bodyEl.hidden = !refs.enabledEl.checked;
+    const osc = current[`${c.prefix}Osc`];
+    if (osc) osc.type = wave;
+  });
+}
+
+function startRenamePreset(preset, nameSpan) {
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'preset-name-input';
+  input.value = preset.name;
+  nameSpan.replaceWith(input);
+  input.focus();
+  input.select();
+
+  let committed = false;
+  const commit = () => {
+    if (committed) return;
+    committed = true;
+    const newName = input.value.trim();
+    if (newName) preset.name = newName;
+    savePresetsToStorage();
+    renderPresetList();
+  };
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') input.blur();
+    else if (e.key === 'Escape') { committed = true; renderPresetList(); }
+  });
+  input.addEventListener('blur', commit);
+  input.addEventListener('click', (e) => e.stopPropagation());
+  input.addEventListener('dblclick', (e) => e.stopPropagation());
+}
+
+function renderPresetList() {
+  els.presetList.innerHTML = '';
+  if (presets.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'preset-empty';
+    empty.textContent = 'No saved presets yet.';
+    els.presetList.appendChild(empty);
+    return;
+  }
+  // Break savedAt ties (e.g. two saves in the same millisecond) using
+  // array position, since presets are always appended in save order -
+  // otherwise same-millisecond saves could sort out of order.
+  presets.map((preset, i) => ({ preset, i }))
+    .sort((a, b) => (b.preset.savedAt - a.preset.savedAt) || (b.i - a.i))
+    .forEach(({ preset }) => {
+    const item = document.createElement('div');
+    item.className = 'preset-item';
+
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'preset-name';
+    nameSpan.textContent = preset.name;
+    nameSpan.title = preset.name;
+
+    const delBtn = document.createElement('button');
+    delBtn.type = 'button';
+    delBtn.className = 'preset-delete';
+    delBtn.textContent = '×';
+    delBtn.title = 'Delete preset';
+
+    item.appendChild(nameSpan);
+    item.appendChild(delBtn);
+    els.presetList.appendChild(item);
+
+    item.addEventListener('click', () => applyPresetState(preset.state));
+    nameSpan.addEventListener('dblclick', (e) => {
+      e.stopPropagation();
+      startRenamePreset(preset, nameSpan);
+    });
+    delBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      presets = presets.filter(p => p.id !== preset.id);
+      savePresetsToStorage();
+      renderPresetList();
+    });
+  });
+}
+
+els.savePresetBtn.addEventListener('click', () => {
+  presets.push({
+    id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    name: `Preset ${presets.length + 1}`,
+    savedAt: Date.now(),
+    state: capturePresetState(),
+  });
+  savePresetsToStorage();
+  renderPresetList();
+});
+
+els.randomizeBtn.addEventListener('click', randomizeParams);
+
+mountParamBlocks();
+document.querySelectorAll('.knob-dial[data-knob-for]').forEach(dial => {
+  const input = document.getElementById(dial.dataset.knobFor);
+  if (input) initValueKnobFromInput(input, dial);
+});
+applySource(DEFAULTS.source);
+renderPresetList();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
