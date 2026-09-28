@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 
 const canvas = document.getElementById('scope');
 const ctx = canvas.getContext('2d');
@@ -52,6 +52,8 @@ const els = {
   pauseBtn: document.getElementById('pauseBtn'),
   freezeBtn: document.getElementById('freezeBtn'),
   resetBtn: document.getElementById('resetBtn'),
+  fullscreenBtn: document.getElementById('fullscreenBtn'),
+  stage: document.getElementById('stage'),
   savePresetBtn: document.getElementById('savePresetBtn'),
   randomizeBtn: document.getElementById('randomizeBtn'),
   presetList: document.getElementById('presetList'),
@@ -127,6 +129,30 @@ function createKnobTooltip(dial) {
   };
 }
 
+// The dial rotates with its value, so its glowing value arc can't live
+// inside it: each dial is wrapped in a non-rotating ring whose arc
+// element sits behind the dial, the dial's opaque body covering all but
+// the outer band.
+function wrapKnobInRing(dial) {
+  const ring = document.createElement('div');
+  ring.className = 'knob-ring';
+  const arc = document.createElement('div');
+  arc.className = 'knob-arc';
+  dial.parentNode.insertBefore(ring, dial);
+  ring.appendChild(arc);
+  ring.appendChild(dial);
+  return arc;
+}
+
+// Bipolar knobs (a center notch, e.g. Filter -1..1) fill outward from
+// the top instead of from the minimum.
+function setKnobPosition(dial, arc, frac, bipolar) {
+  const angle = KNOB_ANGLE_MIN + frac * (KNOB_ANGLE_MAX - KNOB_ANGLE_MIN);
+  dial.style.transform = `rotate(${angle}deg)`;
+  arc.style.setProperty('--arc-from', `${bipolar ? Math.min(0, angle) : KNOB_ANGLE_MIN}deg`);
+  arc.style.setProperty('--arc-len', `${bipolar ? Math.abs(angle) : angle - KNOB_ANGLE_MIN}deg`);
+}
+
 function initSelectKnob(el, options, initialValue) {
   const dial = document.createElement('div');
   dial.className = 'knob-dial';
@@ -137,13 +163,14 @@ function initSelectKnob(el, options, initialValue) {
   readout.className = 'knob-readout';
   el.appendChild(dial);
   el.appendChild(readout);
+  const arc = wrapKnobInRing(dial);
 
   let index = options.findIndex(o => String(o.value) === String(initialValue));
   if (index < 0) index = 0;
 
   function render() {
     const frac = options.length > 1 ? index / (options.length - 1) : 0.5;
-    dial.style.transform = `rotate(${KNOB_ANGLE_MIN + frac * (KNOB_ANGLE_MAX - KNOB_ANGLE_MIN)}deg)`;
+    setKnobPosition(dial, arc, frac, false);
     readout.textContent = options[index].label;
   }
   render();
@@ -202,11 +229,13 @@ function initValueKnobFromInput(input, dial) {
   // paramRowsHTML always names the row's readout span "<inputId>Val".
   const readoutEl = document.getElementById(`${input.id}Val`);
   const tooltip = createKnobTooltip(dial);
+  const arc = wrapKnobInRing(dial);
+  const bipolar = input.dataset.snapZero === '1';
 
   function render() {
     const v = parseFloat(nativeDesc.get.call(input));
     const frac = max > min ? Math.max(0, Math.min(1, (v - min) / (max - min))) : 0;
-    dial.style.transform = `rotate(${KNOB_ANGLE_MIN + frac * (KNOB_ANGLE_MAX - KNOB_ANGLE_MIN)}deg)`;
+    setKnobPosition(dial, arc, frac, bipolar);
   }
 
   // Shadow the native value accessor so ANY programmatic set (preset
@@ -223,10 +252,9 @@ function initValueKnobFromInput(input, dial) {
   // snaps back to exactly 0 once the dragged/scrolled value is within a
   // small window of it, so the knob is easy to return to neutral with a
   // mouse instead of hunting for the exact pixel.
-  const snapZero = input.dataset.snapZero === '1';
   const snapWindow = (max - min) * 0.035;
   function applySnap(v) {
-    return (snapZero && Math.abs(v) < snapWindow) ? 0 : v;
+    return (bipolar && Math.abs(v) < snapWindow) ? 0 : v;
   }
 
   let dragging = false, startY = 0, startVal = 0, fine = false;
@@ -1285,6 +1313,30 @@ els.freezeBtn.addEventListener('click', () => {
   els.freezeBtn.classList.toggle('active', frozen);
   els.freezeBtn.textContent = frozen ? 'Unfreeze' : 'Freeze';
 });
+
+// Vendor-prefixed fallback only matters for older Safari; every other
+// current browser exposes the unprefixed Fullscreen API.
+function currentFullscreenElement() {
+  return document.fullscreenElement || document.webkitFullscreenElement || null;
+}
+
+els.fullscreenBtn.addEventListener('click', () => {
+  if (!currentFullscreenElement()) {
+    const request = els.stage.requestFullscreen || els.stage.webkitRequestFullscreen;
+    request.call(els.stage);
+  } else {
+    const exit = document.exitFullscreen || document.webkitExitFullscreen;
+    exit.call(document);
+  }
+});
+
+function syncFullscreenBtn() {
+  const active = currentFullscreenElement() === els.stage;
+  els.fullscreenBtn.classList.toggle('active', active);
+  els.fullscreenBtn.textContent = active ? 'Exit Fullscreen' : 'Fullscreen';
+}
+document.addEventListener('fullscreenchange', syncFullscreenBtn);
+document.addEventListener('webkitfullscreenchange', syncFullscreenBtn);
 
 // Distinct from Freeze: this suspends the AudioContext itself, so the
 // signal (tone/mic/line out/file) actually stops rather than just the

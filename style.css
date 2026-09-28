@@ -1,20 +1,43 @@
 /* ---------------------------------------------------------------
-   Moog Grandmother inspired panel: a cream control surface, Moog-
-   red-orange accent, knurled dark knobs with a cream pointer line.
+   "Violet on Graphite" - the 5-star theme picked through the UI Lab
+   color experiments (generation 32; the lab itself and every theme
+   rated 3+ now live in ..\UI Theme Lab). Neutral graphite surfaces,
+   white text, violet card titles / knob arcs / pointers, pale-yellow
+   highlights, no knob glow. Contrast: labels 9.6:1, values 5.0:1,
+   card titles 4.5:1, arcs 3.7:1.
    The scope and panel sit flush against each other with no outer
    frame - see #stage/#panel's shared, borderless seam.
    --------------------------------------------------------------- */
 :root {
-  --panel: #e7e0cd;
-  --panel-card: #f2ecdd;
-  --panel-border: #c3b89c;
-  --ink: #2b2620;
-  --ink-dim: #7a7160;
-  --orange: #d8481f;
-  --orange-bright: #f2793f;
-  --knob: #1c1a17;
-  --knob-face: #4a4844;
-  --knob-indicator: #f2ecdd;
+  --panel: #242324;
+  --panel-card: #3b393c;
+  --panel-border: #515053;
+  --ink: #ebebeb;
+  --ink-dim: #a6a4a8;
+  /* Highlight color (faders, stars, scrollbars, hover borders) - the
+     name predates the theme. */
+  --orange: #eded78;
+  --accent-rgb: 237,237,120;
+  --knob: #3b393c;
+  --knob-face: #515053;
+  --knob-indicator: #b98aef;
+  --c-title: #ebebeb;
+  --c-legend: #bc8ff0;
+  --c-subhead: #a6a4a8;
+  --c-arc: #af78ed;
+  /* Value readouts (numbers, selected options) are plain gray, not an
+     accent color. */
+  --value: #ababab;
+  /* Fixed state colors - deliberately NOT theme tokens, so ON always
+     reads red and BYPASSED always reads blue whatever theme is applied. */
+  --on-red: #c81e1e;
+  --on-red-bright: #f0484a;
+  --on-red-border: #5c0b0b;
+  --on-red-rgb: 200,30,30;
+  --bypass-blue: #3568b8;
+  --bypass-blue-bright: #5b8fe0;
+  --bypass-blue-border: #1c3f73;
+  --bypass-blue-rgb: 53,104,184;
 }
 
 * { box-sizing: border-box; }
@@ -58,6 +81,31 @@ html, body {
   background: #000;
 }
 
+/* Fullscreen: the browser puts whatever element requestFullscreen() was
+   called on into a top-layer viewport-filling box (`:fullscreen`), but
+   leaves ITS OWN sizing untouched - #stage's normal 900x900/border/
+   flex-basis rules would otherwise just center a small fixed square in
+   the middle of a black screen. Override to fill the screen and let the
+   square canvas scale up via min(100vw,100vh) so it stays 1:1 and
+   letterboxes instead of stretching on a non-square display. */
+#stage:fullscreen,
+#stage:-webkit-full-screen {
+  width: 100vw;
+  height: 100vh;
+  flex-basis: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 0;
+}
+
+#stage:fullscreen #scope,
+#stage:-webkit-full-screen #scope {
+  width: min(100vw, 100vh);
+  height: min(100vw, 100vh);
+}
+
 #panel {
   flex: 1 1 auto;
   min-width: 0;
@@ -73,6 +121,7 @@ html, body {
   grid-template-columns: repeat(3, 1fr);
   gap: 12px;
   align-content: start;
+  transition: background-color 0.25s ease, border-color 0.25s ease;
 }
 
 #panel::-webkit-scrollbar { width: 10px; }
@@ -94,8 +143,7 @@ html, body {
   font-weight: 800;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--orange);
-  text-shadow: 0 1px 0 rgba(255,255,255,0.5);
+  color: var(--c-title, var(--orange));
   margin: 0;
 }
 
@@ -104,8 +152,8 @@ html, body {
 button {
   font-family: inherit;
   cursor: pointer;
-  border: 1px solid #a89f8a;
-  background: linear-gradient(#f8f4e9, #ddd4b8);
+  border: 1px solid var(--panel-border);
+  background: var(--panel-card);
   color: var(--ink);
   border-radius: 4px;
   padding: 7px 12px;
@@ -113,31 +161,28 @@ button {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.6), 0 1px 2px rgba(0,0,0,0.25);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 1px 2px rgba(0,0,0,0.25);
   transition: background 0.12s, color 0.12s, border-color 0.12s;
 }
 
-button:hover { background: linear-gradient(#fffdf6, #e6dcbf); }
-
-.wide-btn {
-  background: linear-gradient(#f8f4e9, #ddd4b8);
-  border-color: #a89f8a;
-  color: var(--ink);
-}
-.wide-btn:hover { background: linear-gradient(#fffdf6, #e6dcbf); }
-.wide-btn.active {
-  background: linear-gradient(var(--orange-bright), var(--orange));
-  border-color: #000;
-  color: #fff6ec;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.35), 0 0 6px rgba(216,72,31,0.5);
-}
+button:hover { border-color: var(--orange); }
 .wide-btn.ghost {
-  background: #efe8d5;
+  background: var(--panel-card);
   color: var(--ink-dim);
-  border-color: #c3b89c;
+  border-color: var(--panel-border);
   font-weight: 700;
 }
-.wide-btn.ghost:hover { color: var(--ink); background: #f5efdd; }
+.wide-btn.ghost:hover { color: var(--ink); border-color: var(--orange); }
+/* ON state for toggle buttons (Mute/Freeze/Pause/Fullscreen). Listed
+   after, and matching, the ghost rules so ghost buttons show it too. */
+.wide-btn.active,
+.wide-btn.ghost.active,
+.wide-btn.ghost.active:hover {
+  background: linear-gradient(var(--on-red-bright), var(--on-red));
+  border-color: var(--on-red-border);
+  color: #fff;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.35), 0 0 6px rgba(var(--on-red-rgb),0.5);
+}
 
 /* Per-effect Bypass toggle: a compact "B" button, blue when the effect
    is bypassed (the opposite emphasis of .wide-btn.active elsewhere,
@@ -148,12 +193,12 @@ button:hover { background: linear-gradient(#fffdf6, #e6dcbf); }
   padding: 5px 10px;
 }
 .bypass-btn.bypassed {
-  background: linear-gradient(#5b8fe0, #3568b8);
-  border-color: #1c3f73;
+  background: linear-gradient(var(--bypass-blue-bright), var(--bypass-blue));
+  border-color: var(--bypass-blue-border);
   color: #fff;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.35), 0 0 6px rgba(53,104,184,0.5);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.35), 0 0 6px rgba(var(--bypass-blue-rgb),0.5);
 }
-.bypass-btn.bypassed:hover { background: linear-gradient(#6a9ce6, #3f72c0); }
+.bypass-btn.bypassed:hover { filter: brightness(1.1); }
 
 /* Grid layout: every fieldset is its own card; the .section wrapper
    divs (compactParams/toneGroup/displayParams) go transparent so
@@ -164,12 +209,13 @@ button:hover { background: linear-gradient(#fffdf6, #e6dcbf); }
 
 fieldset.group {
   border: 1px solid var(--panel-border);
-  border-radius: 4px;
+  border-radius: 7px;
   margin: 0;
   height: fit-content;
   padding: 10px 14px 14px;
   background: var(--panel-card);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.5), 0 1px 3px rgba(0,0,0,0.12);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), 0 1px 3px rgba(0,0,0,0.12);
+  transition: background-color 0.25s ease, border-color 0.25s ease, padding 0.2s ease;
   /* fieldset (and flex/grid items generally) default to min-width:auto,
      sized to their content's natural minimum instead of shrinking to
      fit the grid track - without this, a long nowrap knob-readout (see
@@ -178,13 +224,30 @@ fieldset.group {
   min-width: 0;
 }
 
-fieldset.group legend {
-  padding: 0 6px;
+/* Card title band: the card extends up past its title so the name sits
+   inside the frame instead of on the border line. Floating a <legend>
+   is what takes it out of the fieldset border (browsers only draw the
+   notched border for a non-floated legend); negative margins stretch
+   the band edge to edge, and the next element clears it. The band
+   darkens toward the top - on these dark themes that only raises the
+   accent title's contrast against it. */
+fieldset.group > legend {
+  float: left;
+  box-sizing: border-box;
+  width: calc(100% + 28px);
+  margin: -10px -14px 10px;
+  padding: 7px 14px 6px;
+  border-bottom: 1px solid var(--panel-border);
+  border-radius: 6px 6px 0 0;
+  background: linear-gradient(rgba(0,0,0,0.26), rgba(0,0,0,0.08));
   font-size: 11px;
   font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  color: var(--orange);
+  color: var(--c-legend, var(--orange));
+}
+fieldset.group > legend + * {
+  clear: both;
 }
 
 .param-block {
@@ -199,16 +262,12 @@ fieldset.group legend {
   grid-column: 3;
 }
 
-.param-block legend {
-  color: var(--orange);
-}
-
 .subhead {
   font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  color: var(--ink-dim);
+  color: var(--c-subhead, var(--ink-dim));
   margin: 10px 0 4px;
   border-top: 1px solid var(--panel-border);
   padding-top: 6px;
@@ -231,9 +290,9 @@ fieldset.group legend {
 
 .row input[type="file"] {
   flex: 1 1 auto;
-  background: #efe8d5;
+  background: var(--panel-card);
   color: var(--ink);
-  border: 1px solid #c3b89c;
+  border: 1px solid var(--panel-border);
   border-radius: 3px;
   padding: 4px 6px;
   font-size: 12px;
@@ -245,7 +304,7 @@ fieldset.group legend {
   text-align: right;
   font-size: 11px;
   font-weight: 700;
-  color: var(--orange);
+  color: var(--value);
   font-variant-numeric: tabular-nums;
 }
 
@@ -296,8 +355,8 @@ fieldset.group legend {
   -moz-appearance: none;
   width: 34px;
   height: 18px;
-  background: #cfc6ac;
-  border: 1px solid #9a8f74;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
   border-radius: 10px;
   position: relative;
   cursor: pointer;
@@ -314,13 +373,13 @@ fieldset.group legend {
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background: radial-gradient(circle at 35% 30%, var(--knob-face), var(--knob) 75%);
+  background: radial-gradient(circle at 35% 30%, #8a888c, var(--knob-face) 75%);
   border: 1px solid #000;
   transition: transform 0.15s;
 }
 .check input[type="checkbox"]:checked {
-  background: linear-gradient(var(--orange-bright), var(--orange));
-  border-color: #000;
+  background: linear-gradient(var(--on-red-bright), var(--on-red));
+  border-color: var(--on-red-border);
 }
 .check input[type="checkbox"]:checked::before {
   transform: translateX(16px);
@@ -366,11 +425,39 @@ fieldset.group legend {
   border-radius: 50%;
   background: radial-gradient(circle at 35% 30%, var(--knob-face), var(--knob) 75%);
   border: 1px solid #000;
-  box-shadow: 0 0 0 2px rgba(216,72,31,0.35), 0 1px 3px rgba(0,0,0,0.45), inset 0 1px 1px rgba(255,255,255,0.15);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.45), inset 0 1px 1px rgba(255,255,255,0.15);
   position: relative;
   flex: none;
   cursor: ns-resize;
   touch-action: none;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+/* Non-rotating holder for a dial and its value arc (see wrapKnobInRing
+   / setKnobPosition in script.js). ::before is the dim full-range track,
+   .knob-arc the lit portion up to the current value; both sit behind
+   the dial, whose opaque body leaves just a 4px band showing. The glow
+   (a rated gene) is a drop-shadow on the arc alone, so the unlit track
+   never glows. */
+.knob-ring {
+  position: relative;
+  flex: none;
+  width: 30px;
+  height: 30px;
+}
+.knob-ring::before,
+.knob-arc {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  pointer-events: none;
+}
+.knob-ring::before {
+  background: conic-gradient(from -132deg, rgba(128,128,128,0.28) 0deg 264deg, transparent 0deg);
+}
+.knob-arc {
+  background: conic-gradient(from var(--arc-from, -132deg), var(--c-arc, var(--orange)) 0deg var(--arc-len, 0deg), transparent 0deg);
 }
 
 .knob-indicator {
@@ -431,7 +518,7 @@ fieldset.group legend {
 .knob-readout {
   font-size: 12px;
   font-weight: 700;
-  color: var(--orange);
+  color: var(--value);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -447,12 +534,12 @@ fieldset.group legend {
   overflow-y: auto;
   border: 1px solid var(--panel-border);
   border-radius: 3px;
-  background: #efe8d5;
+  background: var(--panel);
 }
 
 .preset-list::-webkit-scrollbar { width: 8px; }
 .preset-list::-webkit-scrollbar-thumb { background: var(--orange); border-radius: 6px; }
-.preset-list::-webkit-scrollbar-track { background: #efe8d5; }
+.preset-list::-webkit-scrollbar-track { background: var(--panel); }
 
 .preset-item {
   display: flex;
@@ -467,7 +554,11 @@ fieldset.group legend {
   cursor: pointer;
 }
 .preset-item:last-child { border-bottom: none; }
-.preset-item:hover { background: #e2d9bd; }
+/* A translucent accent tint rather than a fixed hex - reads as
+   "highlighted" whether --panel is light or dark, unlike a hardcoded
+   lighten/darken which only worked for the one cream theme it was
+   tuned against. */
+.preset-item:hover { background: rgba(var(--accent-rgb), 0.15); }
 
 .preset-item .preset-name {
   flex: 1 1 auto;
@@ -478,7 +569,7 @@ fieldset.group legend {
 
 .preset-item .preset-name-input {
   flex: 1 1 auto;
-  background: #fffdf6;
+  background: var(--panel-card);
   color: var(--ink);
   border: 1px solid var(--orange);
   border-radius: 2px;
