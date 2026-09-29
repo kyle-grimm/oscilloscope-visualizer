@@ -12,8 +12,10 @@
      declared (see #panelTrack).
    - Every parameter row gives its slack to the LABEL instead of to an
      empty knob holder (see .row).
-   - Each card's title band is a raised ridge that lowers back to the
-     card face over 7px (see fieldset.group > legend and its ::after).
+   - Each card's title band is a raised ridge: a lit top lip, a held
+     plateau the height of the header, a crisp break, then a 9px
+     fall-off back to the card face (see fieldset.group > legend and
+     its ::after).
    - The scope and panel still sit flush against each other with no
      outer frame - see #stage/#panel's shared, borderless seam.
    --------------------------------------------------------------- */
@@ -23,10 +25,21 @@
      and the preset/button styling already reference. */
   --panel-card: #3b393c;
   --panel-border: #515053;
-  /* Ridge: the card surface rises to --ridge-top across the title
-     band, then drops to --ridge-base where it meets the face. */
-  --ridge-top: #47454b;
-  --ridge-base: #3c3a3f;
+  /* Ridge: the card surface rises to --ridge-lip at its top edge, holds
+     --ridge-top as a plateau across the title band, and breaks at
+     --ridge-base before the fall-off returns it to the card face.
+
+     The lift is deliberately modest (--ridge-top is ~16 units above
+     --panel-card, not the ~40 a plateau that read as raised on its
+     tone alone would need). Relief comes from the EDGES - a bright top
+     lip and a dark break with a real fall-off below it - which is both
+     how a bevel actually works and what keeps --c-section legible: at
+     a lighter plateau the section name needs to go nearly white to
+     hold 4.5:1, which costs the violet. Measured on the band the text
+     actually sits on, #cfabf6 runs 4.6:1 to 4.9:1 here. */
+  --ridge-lip: #504e55;
+  --ridge-top: #4b494f;
+  --ridge-base: #46444a;
   /* The footer sinks below the panel field rather than rising. */
   --floor: #1f1e20;
   --ink: #ebebeb;
@@ -42,10 +55,11 @@
   --knob-indicator: #b98aef;
   --c-title: #ebebeb;
   /* Two violets, not one: --c-section sits on the RAISED title band
-     (#47454b), where the old #bc8ff0 only reached 3.75:1 at 10.5px and
-     failed. --c-legend keeps that original violet for violet on the
-     darker panel field, where it is 6.2:1. A raised band is a lighter
-     band, so this split is inherent to the ridge, not a preference. */
+     (--ridge-top/--ridge-base), where the old #bc8ff0 only reached
+     3.75:1 at 10.5px and failed. --c-legend keeps that original
+     violet for violet on the darker panel field, where it is 6.2:1.
+     A raised band is a lighter band, so this split is inherent to the
+     ridge, not a preference. */
   --c-section: #cfabf6;
   --c-legend: #bc8ff0;
   --c-subhead: #a6a4a8;
@@ -218,7 +232,7 @@ html, body {
   padding: 7px 10px 6px;
   background: linear-gradient(180deg, #2e2d2f, #262527);
   border-bottom: 1px solid #4a494c;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.07), 0 2px 5px -2px rgba(0,0,0,0.6);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.14), 0 2px 5px -2px rgba(0,0,0,0.6);
   position: relative;
   z-index: 2;
 }
@@ -247,7 +261,7 @@ html, body {
   color: var(--ink-floor);
   background: var(--floor);
   border-top: 1px solid #4a494c;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), 0 -2px 5px -2px rgba(0,0,0,0.55);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.1), 0 -2px 5px -2px rgba(0,0,0,0.55);
   position: relative;
   z-index: 2;
 }
@@ -367,14 +381,26 @@ fieldset.group > legend {
   position: relative;
   box-sizing: border-box;
   width: calc(100% + 20px);
-  margin: -8px -10px 7px;
+  margin: -8px -10px 9px;
   padding: 6px 10px 5px;
   border-radius: 5px 5px 0 0;
-  background: linear-gradient(180deg, var(--ridge-top), #403e44 78%, var(--ridge-base));
+  /* The lip is held to the top 3px rather than being a gradient stop
+     the text sits on - the text region stays --ridge-top to
+     --ridge-base, which is what the contrast figures above are
+     measured against. */
+  background: linear-gradient(180deg,
+    var(--ridge-lip) 0,
+    var(--ridge-top) 3px,
+    var(--ridge-top) 58%,
+    var(--ridge-base) 100%);
   box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.11),
-    0 1px 0 rgba(255,255,255,0.045),
-    0 2px 4px -1px rgba(0,0,0,0.5);
+    /* the top lip, catching the light */
+    inset 0 1px 0 rgba(255,255,255,0.20),
+    /* the plateau's own bottom, turning away from the light */
+    inset 0 -1px 0 rgba(0,0,0,0.3),
+    /* the break: one crisp dark line, the top of the descending face */
+    0 1px 0 rgba(0,0,0,0.5),
+    0 2px 1px rgba(0,0,0,0.28);
   font-size: 10.5px;
   font-weight: 700;
   line-height: 1.25;
@@ -384,16 +410,23 @@ fieldset.group > legend {
   z-index: 1;
 }
 
-/* The fall-off. One sharp edge at the band (the box-shadow pair above),
-   then the shadow thins to nothing across the legend's bottom margin. */
+/* The fall-off: the descending face, laid over the legend's bottom
+   margin. Three stops rather than two so it eases out instead of
+   ramping linearly - that curve is what makes the surface read as
+   lowering back to the card rather than stepping down twice. 9px, to
+   match the margin above. */
 fieldset.group > legend::after {
   content: '';
   position: absolute;
   left: 0;
   right: 0;
   top: 100%;
-  height: 7px;
-  background: linear-gradient(rgba(0,0,0,0.17), rgba(0,0,0,0));
+  height: 9px;
+  background: linear-gradient(
+    rgba(0,0,0,0.34),
+    rgba(0,0,0,0.13) 42%,
+    rgba(0,0,0,0.03) 74%,
+    rgba(0,0,0,0));
   pointer-events: none;
 }
 
