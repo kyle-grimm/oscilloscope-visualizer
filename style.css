@@ -3,25 +3,50 @@
    color experiments (generation 32; the lab itself and every theme
    rated 3+ now live in ..\UI Theme Lab). Neutral graphite surfaces,
    white text, violet card titles / knob arcs / pointers, pale-yellow
-   highlights, no knob glow. Contrast: labels 9.6:1, values 5.0:1,
-   card titles 4.5:1, arcs 3.7:1.
-   The scope and panel sit flush against each other with no outer
-   frame - see #stage/#panel's shared, borderless seam.
+   highlights.
+
+   Reworked to the UI schema (see the Oscilloscope UI Schema canvas):
+   - The panel is a flex column - header, a multi-column card track,
+     footer - instead of a fixed 3-track grid, so the number of card
+     columns is emergent from the panel's own width rather than
+     declared (see #panelTrack).
+   - Every parameter row gives its slack to the LABEL instead of to an
+     empty knob holder (see .row).
+   - Each card's title band is a raised ridge that lowers back to the
+     card face over 7px (see fieldset.group > legend and its ::after).
+   - The scope and panel still sit flush against each other with no
+     outer frame - see #stage/#panel's shared, borderless seam.
    --------------------------------------------------------------- */
 :root {
   --panel: #242324;
+  /* Card face. --panel-card is kept as the name script.js-era rules
+     and the preset/button styling already reference. */
   --panel-card: #3b393c;
   --panel-border: #515053;
+  /* Ridge: the card surface rises to --ridge-top across the title
+     band, then drops to --ridge-base where it meets the face. */
+  --ridge-top: #47454b;
+  --ridge-base: #3c3a3f;
+  /* The footer sinks below the panel field rather than rising. */
+  --floor: #1f1e20;
   --ink: #ebebeb;
   --ink-dim: #a6a4a8;
-  /* Highlight color (faders, stars, scrollbars, hover borders) - the
-     name predates the theme. */
-  --orange: #eded78;
+  --ink-floor: #8f8d92;
+  /* Focus rings, the bipolar centre notch, scrollbars. Named for what
+     it does - it held the name --orange for a theme ago, when it was
+     actually orange; it is a pale yellow now. */
+  --highlight: #eded78;
   --accent-rgb: 237,237,120;
   --knob: #3b393c;
   --knob-face: #515053;
   --knob-indicator: #b98aef;
   --c-title: #ebebeb;
+  /* Two violets, not one: --c-section sits on the RAISED title band
+     (#47454b), where the old #bc8ff0 only reached 3.75:1 at 10.5px and
+     failed. --c-legend keeps that original violet for violet on the
+     darker panel field, where it is 6.2:1. A raised band is a lighter
+     band, so this split is inherent to the ridge, not a preference. */
+  --c-section: #cfabf6;
   --c-legend: #bc8ff0;
   --c-subhead: #a6a4a8;
   --c-arc: #af78ed;
@@ -29,7 +54,9 @@
      accent color. */
   --value: #ababab;
   /* Fixed state colors - deliberately NOT theme tokens, so ON always
-     reads red and BYPASSED always reads blue whatever theme is applied. */
+     reads red and BYPASSED always reads blue whatever theme is applied.
+     Both also differ in fill weight and carry a letter or word, so they
+     separate without relying on hue alone. */
   --on-red: #c81e1e;
   --on-red-bright: #f0484a;
   --on-red-border: #5c0b0b;
@@ -48,7 +75,11 @@ html, body {
   padding: 0;
   background: #000;
   color: var(--ink);
-  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  /* Condensed on purpose: at 11.5px it fits a longer parameter name in
+     a narrower column than Segoe UI did, which is where most of the
+     horizontal saving comes from. System stack behind it so a blocked
+     webfont degrades to something narrow-ish rather than to Times. */
+  font-family: 'Barlow Semi Condensed', 'Segoe UI Semibold', 'Segoe UI', system-ui, -apple-system, sans-serif;
   /* Deliberately no explicit overflow here: the viewport already
      scrolls overflowing content by default, and setting overflow:auto
      on BOTH html and body creates two independent scroll containers
@@ -57,16 +88,29 @@ html, body {
      wrong one and never actually stick. */
 }
 
+:focus-visible {
+  outline: 2px solid var(--highlight);
+  outline-offset: 1px;
+}
+
+/* ---------------------------------------------------------------
+   Shell. Was a fixed 1800x900 with one breakpoint at 900px, which
+   overflowed sideways at every width in between. The scope is now
+   sized from the window's own height and capped so the panel never
+   drops below ~38% of the width; everything else follows from that.
+   --------------------------------------------------------------- */
 #app {
-  width: 1800px;
-  height: 900px;
+  width: 100%;
+  height: 100dvh;
   display: flex;
 }
 
 #stage {
-  width: 900px;
-  height: 900px;
-  flex: 0 0 900px;
+  /* Square, from the height, never wider than 62% of the window. At
+     1800x900 this is exactly the 900px the fixed layout used. */
+  flex: 0 0 auto;
+  width: min(100dvh, 62vw);
+  height: min(100dvh, 62vw);
   background: #000;
   border: 3px solid var(--knob);
   border-right: none;
@@ -75,17 +119,19 @@ html, body {
 }
 
 #scope {
-  width: 900px;
-  height: 900px;
+  /* The backing store stays 900x900 (see the width/height attributes
+     in index.html, and W/H in script.js); CSS scales it to the stage. */
+  width: 100%;
+  height: 100%;
   display: block;
   background: #000;
 }
 
 /* Fullscreen: the browser puts whatever element requestFullscreen() was
    called on into a top-layer viewport-filling box (`:fullscreen`), but
-   leaves ITS OWN sizing untouched - #stage's normal 900x900/border/
-   flex-basis rules would otherwise just center a small fixed square in
-   the middle of a black screen. Override to fill the screen and let the
+   leaves ITS OWN sizing untouched - #stage's normal sizing/border/
+   flex-basis rules would otherwise just center a small square in the
+   middle of a black screen. Override to fill the screen and let the
    square canvas scale up via min(100vw,100vh) so it stays 1:1 and
    letterboxes instead of stretching on a non-square display. */
 #stage:fullscreen,
@@ -109,45 +155,116 @@ html, body {
 #panel {
   flex: 1 1 auto;
   min-width: 0;
-  width: 900px;
-  height: 900px;
-  overflow-y: auto;
+  height: 100%;
   background: var(--panel);
   border: 3px solid var(--knob);
   border-left: none;
   border-radius: 0 3px 3px 0;
-  padding: 14px 18px 40px;
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
-  align-content: start;
+  display: flex;
+  flex-direction: column;
   transition: background-color 0.25s ease, border-color 0.25s ease;
 }
 
-#panel::-webkit-scrollbar { width: 10px; }
-#panel::-webkit-scrollbar-thumb { background: var(--orange); border-radius: 6px; }
-#panel::-webkit-scrollbar-track { background: var(--panel); }
+/* ---------------------------------------------------------------
+   The card track. column-width, not a fixed track count: the browser
+   fits as many columns as the panel is actually wide, so the
+   sub-windows rearrange on their own container at every window size
+   with no breakpoint and no declared column count. 208px is the
+   narrowest a full parameter row reads at.
 
+   Multi-column rather than a grid, because grid rows are as tall as
+   their tallest card and leave the short columns of that row empty
+   underneath - real dead space, which is the thing this rework is
+   for. Multicol packs each column independently.
+
+   The scrolling is why this needs two elements, and it is worth
+   knowing before touching either. A multicol box with a DEFINITE
+   height overflows in the INLINE direction: put overflow-y:auto and a
+   flex height on the track itself and, the moment the cards outgrow
+   it, the panel scrolls sideways rather than down. So the definite
+   height and the scrolling live on #panelScroll, and #panelTrack
+   inside it keeps an auto height - which lets column-fill balance the
+   cards across every column and grow downwards, with #panelScroll
+   scrolling it vertically like any other block.
+   --------------------------------------------------------------- */
+#panelScroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 10px;
+}
+
+#panelTrack {
+  column-width: 208px;
+  column-gap: 10px;
+}
+
+#panelScroll::-webkit-scrollbar { width: 10px; }
+#panelScroll::-webkit-scrollbar-thumb { background: var(--highlight); border-radius: 6px; }
+#panelScroll::-webkit-scrollbar-track { background: var(--panel); }
+
+/* ---------------------------------------------------------------
+   Panel header and footer: enough room to separate from the cards and
+   no more. The header rises (light line above the dark one), the
+   footer sinks (the same 1px pair, inverted).
+   --------------------------------------------------------------- */
 .panel-header {
-  grid-column: 1 / -1;
+  flex: none;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 12px;
-  padding-bottom: 12px;
-  border-bottom: 2px solid var(--panel-border);
+  gap: 14px;
+  padding: 7px 10px 6px;
+  background: linear-gradient(180deg, #2e2d2f, #262527);
+  border-bottom: 1px solid #4a494c;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.07), 0 2px 5px -2px rgba(0,0,0,0.6);
+  position: relative;
+  z-index: 2;
 }
 
 .panel-header h1 {
-  font-size: 17px;
+  font-size: 15px;
   font-weight: 800;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--c-title, var(--orange));
+  color: var(--c-title, var(--highlight));
   margin: 0;
+  white-space: nowrap;
 }
 
-.header-actions { display: flex; gap: 8px; }
+.header-actions { display: flex; gap: 5px; flex-wrap: wrap; justify-content: flex-end; }
+
+.panel-footer {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 10px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--ink-floor);
+  background: var(--floor);
+  border-top: 1px solid #4a494c;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), 0 -2px 5px -2px rgba(0,0,0,0.55);
+  position: relative;
+  z-index: 2;
+}
+
+.panel-footer .foot-sep { color: #56555a; }
+.panel-footer .foot-num { font-variant-numeric: tabular-nums; }
+.panel-footer .foot-spacer { flex: 1 1 auto; }
+
+/* Held/stopped states get the same red the transport buttons use, and
+   say so in words so the colour is not carrying the meaning alone. */
+.panel-footer .foot-state {
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: var(--on-red);
+  color: #fff;
+  letter-spacing: 0.08em;
+}
 
 button {
   font-family: inherit;
@@ -155,33 +272,36 @@ button {
   border: 1px solid var(--panel-border);
   background: var(--panel-card);
   color: var(--ink);
-  border-radius: 4px;
-  padding: 7px 12px;
-  font-size: 11px;
+  border-radius: 3px;
+  padding: 5px 9px;
+  font-size: 10.5px;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 1px 2px rgba(0,0,0,0.25);
+  letter-spacing: 0.07em;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), 0 1px 2px rgba(0,0,0,0.25);
   transition: background 0.12s, color 0.12s, border-color 0.12s;
 }
 
-button:hover { border-color: var(--orange); }
+button:hover { border-color: var(--highlight); }
+.wide-btn { white-space: nowrap; }
 .wide-btn.ghost {
-  background: var(--panel-card);
+  background: #343236;
   color: var(--ink-dim);
   border-color: var(--panel-border);
   font-weight: 700;
 }
-.wide-btn.ghost:hover { color: var(--ink); border-color: var(--orange); }
+.wide-btn.ghost:hover { color: var(--ink); border-color: var(--highlight); }
 /* ON state for toggle buttons (Mute/Freeze/Pause/Fullscreen). Listed
-   after, and matching, the ghost rules so ghost buttons show it too. */
+   after, and matching, the ghost rules so ghost buttons show it too.
+   Bloom pulled back from 6px/0.5 to 4px/0.30 - it should read as lit,
+   not as the brightest thing on the panel. */
 .wide-btn.active,
 .wide-btn.ghost.active,
 .wide-btn.ghost.active:hover {
   background: linear-gradient(var(--on-red-bright), var(--on-red));
   border-color: var(--on-red-border);
   color: #fff;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.35), 0 0 6px rgba(var(--on-red-rgb),0.5);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.3), 0 0 4px rgba(var(--on-red-rgb),0.3);
 }
 
 /* Per-effect Bypass toggle: a compact "B" button, blue when the effect
@@ -189,63 +309,94 @@ button:hover { border-color: var(--orange); }
    since here the neutral/off state is what needs no visual weight). */
 .bypass-btn {
   flex: 0 0 auto;
-  min-width: 34px;
-  padding: 5px 10px;
+  min-width: 26px;
+  padding: 3px 6px;
+  font-size: 10px;
+  letter-spacing: 0.06em;
 }
 .bypass-btn.bypassed {
   background: linear-gradient(var(--bypass-blue-bright), var(--bypass-blue));
   border-color: var(--bypass-blue-border);
   color: #fff;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.35), 0 0 6px rgba(var(--bypass-blue-rgb),0.5);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.3), 0 0 4px rgba(var(--bypass-blue-rgb),0.3);
 }
 .bypass-btn.bypassed:hover { filter: brightness(1.1); }
 
-/* Grid layout: every fieldset is its own card; the .section wrapper
-   divs (compactParams/toneGroup/displayParams) go transparent so
-   their child fieldsets act as direct grid items. */
+/* The .section wrapper divs (compactParams/toneGroup/effectsParams/
+   displayParams) go transparent so their child fieldsets flow in the
+   card track directly. */
 .section {
   display: contents;
 }
 
 fieldset.group {
   border: 1px solid var(--panel-border);
-  border-radius: 7px;
-  margin: 0;
-  height: fit-content;
-  padding: 10px 14px 14px;
+  border-radius: 6px;
+  /* Multicol has no gap property for the block axis: the card
+     carries its own bottom margin. */
+  margin: 0 0 10px;
+  padding: 8px 10px 10px;
   background: var(--panel-card);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), 0 1px 3px rgba(0,0,0,0.12);
-  transition: background-color 0.25s ease, border-color 0.25s ease, padding 0.2s ease;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.09), 0 1px 3px rgba(0,0,0,0.32);
+  transition: background-color 0.25s ease, border-color 0.25s ease;
+  /* Keeps a card whole rather than splitting across two columns. */
+  break-inside: avoid;
+  -webkit-column-break-inside: avoid;
   /* fieldset (and flex/grid items generally) default to min-width:auto,
      sized to their content's natural minimum instead of shrinking to
-     fit the grid track - without this, a long nowrap knob-readout (see
+     fit the column - without this, a long nowrap knob-readout (see
      .knob-readout) forces the whole card, and with it the page, wider
      than the viewport on narrow/mobile screens. */
   min-width: 0;
 }
 
-/* Card title band: the card extends up past its title so the name sits
-   inside the frame instead of on the border line. Floating a <legend>
-   is what takes it out of the fieldset border (browsers only draw the
-   notched border for a non-floated legend); negative margins stretch
-   the band edge to edge, and the next element clears it. The band
-   darkens toward the top - on these dark themes that only raises the
-   accent title's contrast against it. */
+/* ---------------------------------------------------------------
+   The ridge. The card surface rises to exactly the height of its
+   title band, holds that plateau across the band, then lowers back to
+   the card face over 7px. Nothing else on the card is raised.
+
+   Floating a <legend> is what takes it out of the fieldset border
+   (browsers only draw the notched border for a non-floated legend);
+   negative margins stretch the band edge to edge, and the next element
+   clears it. The 7px fall-off is the legend's own ::after, laid over
+   its bottom margin, so no extra markup is needed per card - which
+   matters because most cards are built as HTML strings in script.js.
+   --------------------------------------------------------------- */
 fieldset.group > legend {
   float: left;
+  position: relative;
   box-sizing: border-box;
-  width: calc(100% + 28px);
-  margin: -10px -14px 10px;
-  padding: 7px 14px 6px;
-  border-bottom: 1px solid var(--panel-border);
-  border-radius: 6px 6px 0 0;
-  background: linear-gradient(rgba(0,0,0,0.26), rgba(0,0,0,0.08));
-  font-size: 11px;
-  font-weight: 800;
+  width: calc(100% + 20px);
+  margin: -8px -10px 7px;
+  padding: 6px 10px 5px;
+  border-radius: 5px 5px 0 0;
+  background: linear-gradient(180deg, var(--ridge-top), #403e44 78%, var(--ridge-base));
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.11),
+    0 1px 0 rgba(255,255,255,0.045),
+    0 2px 4px -1px rgba(0,0,0,0.5);
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 1.25;
   text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: var(--c-legend, var(--orange));
+  letter-spacing: 0.11em;
+  color: var(--c-section, var(--highlight));
+  z-index: 1;
 }
+
+/* The fall-off. One sharp edge at the band (the box-shadow pair above),
+   then the shadow thins to nothing across the legend's bottom margin. */
+fieldset.group > legend::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 100%;
+  height: 7px;
+  background: linear-gradient(rgba(0,0,0,0.17), rgba(0,0,0,0));
+  pointer-events: none;
+}
+
 fieldset.group > legend + * {
   clear: both;
 }
@@ -254,56 +405,61 @@ fieldset.group > legend + * {
   border-color: var(--panel-border);
 }
 
-/* Keeps Effects directly below Master regardless of which other cards
-   are visible (see mountEffectsBlock) - reset to normal auto-flow on
-   mobile (see the max-width:900px media query) since the panel is a
-   single column there. */
-.effects-block {
-  grid-column: 3;
-}
-
 .subhead {
-  font-size: 10px;
+  font-size: 9.5px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.1em;
   color: var(--c-subhead, var(--ink-dim));
-  margin: 10px 0 4px;
-  border-top: 1px solid var(--panel-border);
-  padding-top: 6px;
+  margin: 6px 0 3px;
+  border-top: 1px solid #4b4a4e;
+  padding-top: 4px;
 }
 
+/* ---------------------------------------------------------------
+   The parameter row. The label takes the slack, not the knob holder:
+   previously `label` was a fixed 96px track and .knob-wrap was
+   flex:1 1 auto around a 30px dial, so ~54px of every row on a 262px
+   column was an empty gap while the label truncated beside it.
+   --------------------------------------------------------------- */
 .row {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin: 5px 0;
+  padding: 3px 0;
+  margin: 0;
 }
 
 .row label {
-  flex: 0 0 96px;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
   color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .row input[type="file"] {
   flex: 1 1 auto;
+  min-width: 0;
   background: var(--panel-card);
   color: var(--ink);
   border: 1px solid var(--panel-border);
   border-radius: 3px;
   padding: 4px 6px;
-  font-size: 12px;
+  font-size: 11.5px;
   box-shadow: inset 0 1px 2px rgba(0,0,0,0.15);
 }
 
 .readout {
-  flex: 0 0 46px;
+  flex: 0 0 auto;
+  min-width: 4ch;
   text-align: right;
-  font-size: 11px;
-  font-weight: 700;
+  font-size: 11.5px;
+  font-weight: 600;
   color: var(--value);
   font-variant-numeric: tabular-nums;
 }
@@ -329,12 +485,12 @@ fieldset.group > legend + * {
 }
 .readout-input:hover,
 .readout-input:focus {
-  border-bottom-color: var(--orange);
+  border-bottom-color: var(--highlight);
   outline: none;
 }
 
 .checks {
-  gap: 16px;
+  gap: 14px;
 }
 
 .check {
@@ -342,13 +498,14 @@ fieldset.group > legend + * {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 11.5px;
+  font-weight: 500;
   color: var(--ink);
 }
 
 /* Switches: checkboxes are restyled in place (no wrapper markup) into
-   a rocker-style track + knurled thumb, matching hardware toggles. */
+   a rocker-style track + knurled thumb, matching hardware toggles.
+   Thrown = red, the same ON red the transport buttons use. */
 .check input[type="checkbox"] {
   appearance: none;
   -webkit-appearance: none;
@@ -386,7 +543,7 @@ fieldset.group > legend + * {
 }
 
 .hint {
-  font-size: 12px;
+  font-size: 11.5px;
   color: var(--ink-dim);
   font-style: italic;
 }
@@ -410,7 +567,9 @@ fieldset.group > legend + * {
    needed since there's no continuous native control to shadow).
    --------------------------------------------------------------- */
 .knob-wrap {
-  flex: 1 1 auto;
+  /* No longer flex:1 1 auto - the dial is 30px and takes 30px. The
+     row's slack goes to the label instead (see .row label). */
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
 }
@@ -424,8 +583,8 @@ fieldset.group > legend + * {
   height: 30px;
   border-radius: 50%;
   background: radial-gradient(circle at 35% 30%, var(--knob-face), var(--knob) 75%);
-  border: 1px solid #000;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.45), inset 0 1px 1px rgba(255,255,255,0.15);
+  border: 1px solid #0b0b0c;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.45), inset 0 1px 1px rgba(255,255,255,0.14);
   position: relative;
   flex: none;
   cursor: ns-resize;
@@ -436,9 +595,15 @@ fieldset.group > legend + * {
 /* Non-rotating holder for a dial and its value arc (see wrapKnobInRing
    / setKnobPosition in script.js). ::before is the dim full-range track,
    .knob-arc the lit portion up to the current value; both sit behind
-   the dial, whose opaque body leaves just a 4px band showing. The glow
-   (a rated gene) is a drop-shadow on the arc alone, so the unlit track
-   never glows. */
+   the dial, whose opaque body leaves just a 3px band showing.
+
+   Subtle, measured on screen rather than on paper: a full-strength arc
+   with a 2px/0.35 bloom looked fine as a number and read as a ring of
+   violet light on every knob at once at actual size, with 30-odd of
+   them on the panel. The arc is held at 0.72 opacity and the bloom cut
+   to 1.5px/0.22, which dims with it. The bloom is on the arc alone, so
+   the unlit track never glows; the drag tooltip, not the bloom, is
+   what confirms a precise setting. */
 .knob-ring {
   position: relative;
   flex: none;
@@ -449,15 +614,17 @@ fieldset.group > legend + * {
 .knob-arc {
   content: '';
   position: absolute;
-  inset: -4px;
+  inset: -3px;
   border-radius: 50%;
   pointer-events: none;
 }
 .knob-ring::before {
-  background: conic-gradient(from -132deg, rgba(128,128,128,0.28) 0deg 264deg, transparent 0deg);
+  background: conic-gradient(from -132deg, rgba(150,150,150,0.24) 0deg 264deg, transparent 0deg);
 }
 .knob-arc {
-  background: conic-gradient(from var(--arc-from, -132deg), var(--c-arc, var(--orange)) 0deg var(--arc-len, 0deg), transparent 0deg);
+  background: conic-gradient(from var(--arc-from, -132deg), var(--c-arc, var(--highlight)) 0deg var(--arc-len, 0deg), transparent 0deg);
+  opacity: 0.72;
+  filter: drop-shadow(0 0 1.5px rgba(175,120,237,0.22));
 }
 
 .knob-indicator {
@@ -465,11 +632,12 @@ fieldset.group > legend + * {
   top: 3px;
   left: 50%;
   width: 2px;
-  height: 10px;
+  height: 9px;
   background: var(--knob-indicator);
   transform: translateX(-50%);
   border-radius: 1px;
   pointer-events: none;
+  box-shadow: 0 0 1.5px rgba(185,138,239,0.3);
 }
 
 /* Fixed tick mark (does not rotate with the knob) showing where a
@@ -482,7 +650,7 @@ fieldset.group > legend + * {
   left: 50%;
   width: 2px;
   height: 5px;
-  background: var(--orange);
+  background: var(--highlight);
   transform: translateX(-50%);
   border-radius: 1px;
   pointer-events: none;
@@ -511,13 +679,13 @@ fieldset.group > legend + * {
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   user-select: none;
 }
 
 .knob-readout {
-  font-size: 12px;
-  font-weight: 700;
+  font-size: 11.5px;
+  font-weight: 600;
   color: var(--value);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -529,8 +697,8 @@ fieldset.group > legend + * {
 }
 
 .preset-list {
-  margin-top: 8px;
-  max-height: 220px;
+  margin-top: 6px;
+  max-height: 180px;
   overflow-y: auto;
   border: 1px solid var(--panel-border);
   border-radius: 3px;
@@ -538,7 +706,7 @@ fieldset.group > legend + * {
 }
 
 .preset-list::-webkit-scrollbar { width: 8px; }
-.preset-list::-webkit-scrollbar-thumb { background: var(--orange); border-radius: 6px; }
+.preset-list::-webkit-scrollbar-thumb { background: var(--highlight); border-radius: 6px; }
 .preset-list::-webkit-scrollbar-track { background: var(--panel); }
 
 .preset-item {
@@ -546,11 +714,11 @@ fieldset.group > legend + * {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 6px 10px;
-  font-size: 11px;
-  font-weight: 600;
+  padding: 5px 8px;
+  font-size: 11.5px;
+  font-weight: 500;
   color: var(--ink);
-  border-bottom: 1px solid var(--panel-border);
+  border-bottom: 1px solid #343236;
   cursor: pointer;
 }
 .preset-item:last-child { border-bottom: none; }
@@ -569,9 +737,10 @@ fieldset.group > legend + * {
 
 .preset-item .preset-name-input {
   flex: 1 1 auto;
+  min-width: 0;
   background: var(--panel-card);
   color: var(--ink);
-  border: 1px solid var(--orange);
+  border: 1px solid var(--highlight);
   border-radius: 2px;
   font: inherit;
   padding: 2px 4px;
@@ -588,26 +757,31 @@ fieldset.group > legend + * {
   padding: 0 2px;
   box-shadow: none;
 }
-.preset-item .preset-delete:hover { color: var(--orange); }
+.preset-item .preset-delete:hover { color: var(--highlight); }
 
 .preset-empty {
-  padding: 10px;
-  font-size: 11px;
+  padding: 8px;
+  font-size: 11.5px;
   font-style: italic;
   color: var(--ink-dim);
 }
 
-/* Mobile: #app is a fixed-size desktop layout (side-by-side stage +
-   panel) above this breakpoint. Below it, stack vertically - the
-   oscilloscope on top, full-width and square, with the controls panel
-   flowing below it and the whole page scrolling normally instead of
-   #panel's own internal scrollbar. Kept at the end of the file so
-   every override here reliably beats the desktop rule it targets,
-   regardless of that rule's own position earlier in the stylesheet. */
+/* ---------------------------------------------------------------
+   Stacked layout. Above this width the scope and panel sit side by
+   side and the scope is sized from the window height; below it the
+   window is too narrow for a square scope to leave a usable panel, so
+   they stack - scope on top, full-width and square, panel below, with
+   the whole page scrolling instead of #panelTrack's own scrollbar.
+   The card track still derives its own column count from its width,
+   so this breakpoint only changes the stacking, not the arrangement.
+   Kept at the end of the file so every override here reliably beats
+   the rule it targets, regardless of that rule's own position.
+   --------------------------------------------------------------- */
 @media (max-width: 900px) {
   #app {
     width: 100%;
     height: auto;
+    min-height: 100dvh;
     flex-direction: column;
     padding: 10px;
   }
@@ -617,41 +791,29 @@ fieldset.group > legend + * {
     height: auto;
     aspect-ratio: 1 / 1;
     flex: none;
-    margin-right: 0;
     margin-bottom: 12px;
     /* Stacked (not side-by-side) here, with a visible gap between them,
        so the desktop-only seamless shared edge doesn't apply - restore
        the full border/radius the base rule strips for that join. */
     border-right: 3px solid var(--knob);
     border-radius: 3px;
-    /* Persists on screen while #panel scrolls beneath it: sticky keeps
-       its normal in-flow position/size until scrolling would carry it
-       above the viewport top, then pins it there. z-index guarantees
-       it stays drawn over #panel's content rather than the reverse. */
+    /* Persists on screen while the panel scrolls beneath it: sticky
+       keeps its normal in-flow position/size until scrolling would
+       carry it above the viewport top, then pins it there. z-index
+       guarantees it stays drawn over the panel's content. */
     position: sticky;
     top: 0;
     z-index: 5;
   }
 
-  #scope {
-    width: 100%;
-    height: 100%;
-  }
-
   #panel {
     width: 100%;
     height: auto;
-    overflow-y: visible;
-    grid-template-columns: 1fr;
     border-left: 3px solid var(--knob);
     border-radius: 3px;
   }
 
-  .effects-block {
-    grid-column: auto;
-  }
-
-  .header-actions {
-    flex-wrap: wrap;
+  #panelScroll {
+    overflow-y: visible;
   }
 }

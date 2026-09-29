@@ -57,7 +57,18 @@ const els = {
   savePresetBtn: document.getElementById('savePresetBtn'),
   randomizeBtn: document.getElementById('randomizeBtn'),
   presetList: document.getElementById('presetList'),
+  footSource: document.getElementById('footSource'),
+  footMode: document.getElementById('footMode'),
+  footFreq: document.getElementById('footFreq'),
+  footState: document.getElementById('footState'),
+  footBypass: document.getElementById('footBypass'),
 };
+
+// Labels for the footer status strip, keyed the same way the Input and
+// Mode knobs are (see the initSelectKnob calls just below). Shorter
+// than the knob labels since the footer is a glance, not a control.
+const SOURCE_FOOT_LABELS = { tone: 'Test tone', mic: 'Microphone', lineout: 'Line out', file: 'Audio file' };
+const MODE_FOOT_LABELS = { waveform: 'Waveform', xy: 'XY' };
 
 const DEFAULTS = { source: 'tone', mode: 'xy', showGrid: true, glow: true };
 const display = { ...DEFAULTS };
@@ -1406,6 +1417,46 @@ els.resetBtn.addEventListener('click', () => {
 });
 
 // ---------------------------------------------------------------
+// Footer status strip. Driven from frame() rather than from each
+// individual control: the X/Y frequency readout changes on every knob
+// drag and the held/muted/paused states change from four different
+// handlers, so one throttled read of the state everything already
+// keeps is both cheaper and harder to leave stale than hooking all of
+// them. Throttled to 4/sec - it is a status line, not an instrument.
+// ---------------------------------------------------------------
+const FOOTER_INTERVAL_MS = 250;
+let lastFooterTime = -Infinity;
+
+function updateFooter() {
+  const source = els.sourceSelect.value;
+  els.footSource.textContent = SOURCE_FOOT_LABELS[source] || source;
+  els.footMode.textContent = MODE_FOOT_LABELS[els.modeSelect.value] || els.modeSelect.value;
+
+  // Only the test tone has an X/Y frequency pair of its own; a mic,
+  // line-out or file carries whatever it carries.
+  if (source === 'tone') {
+    const fx = Math.round(getEffective(paramDefByKey.freqX));
+    const fy = Math.round(getEffective(paramDefByKey.freqY));
+    els.footFreq.textContent = `${fx} : ${fy} Hz`;
+    els.footFreq.hidden = false;
+  } else {
+    els.footFreq.hidden = true;
+  }
+
+  // Words, not just the red of the transport buttons - a held or
+  // silenced signal should never be carried by hue alone.
+  const held = [];
+  if (frozen) held.push('Frozen');
+  if (audioCtx && audioCtx.state === 'suspended') held.push('Paused');
+  if (toneMuted && source === 'tone') held.push('Muted');
+  els.footState.textContent = held.join(' / ');
+  els.footState.hidden = held.length === 0;
+
+  const bypassed = EFFECTS_BYPASS_KEYS.filter(key => effectsBypass[key]).length;
+  els.footBypass.textContent = `${bypassed} of ${EFFECTS_BYPASS_KEYS.length} bypassed`;
+}
+
+// ---------------------------------------------------------------
 // Rendering
 // ---------------------------------------------------------------
 function drawGrid() {
@@ -1713,6 +1764,12 @@ function frame(now) {
     realTime += dtMs;
     phaseTime += dtMs * paramState.masterTime.value * paramState.masterTimeFast.value;
     render(realTime, phaseTime);
+  }
+  // Outside the !frozen guard on purpose: Freeze is one of the states
+  // the footer reports, so it has to keep updating once frozen.
+  if (now - lastFooterTime >= FOOTER_INTERVAL_MS) {
+    lastFooterTime = now;
+    updateFooter();
   }
   requestAnimationFrame(frame);
 }
