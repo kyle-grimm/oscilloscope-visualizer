@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Oscilloscope Visualizer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@400;500;600;700;800&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <div id="stage">
+    <canvas id="scope" width="900" height="900"></canvas>
+  </div>
+
+  <div id="panel">
+    <div class="panel-header">
+      <h1>Oscilloscope Visualizer</h1>
+      <div class="header-actions">
+        <button id="muteBtn" class="wide-btn ghost">Mute Tone</button>
+        <button id="pauseBtn" class="wide-btn ghost">Pause Signal</button>
+        <button id="freezeBtn" class="wide-btn">Freeze</button>
+        <button id="resetBtn" class="wide-btn ghost">Reset</button>
+        <button id="fullscreenBtn" class="wide-btn ghost">Fullscreen</button>
+      </div>
+    </div>
+
+    <!-- The card track. Its column count is not declared anywhere: see
+         #panelTrack's column-width in style.css. Card order here is the
+         flow order, which is why Effects sits directly after Master -
+         it used to be pinned there with grid-column:3, which only ever
+         held at exactly three columns. -->
+    <div id="panelScroll">
+    <div id="panelTrack">
+      <fieldset class="group" id="sourceDisplaySection">
+        <legend>Source &amp; Display</legend>
+        <div class="row">
+          <label for="sourceSelect">Input</label>
+          <div id="sourceSelect" class="knob-select"></div>
+        </div>
+        <div class="row" id="fileRow" hidden>
+          <label for="fileInput">File</label>
+          <input type="file" id="fileInput" accept="audio/*">
+        </div>
+        <div class="row" id="liveStatusRow" hidden>
+          <span id="liveStatus" class="hint">Requesting access...</span>
+        </div>
+        <div class="row">
+          <label for="modeSelect">Mode</label>
+          <div id="modeSelect" class="knob-select"></div>
+        </div>
+        <div class="row checks">
+          <label class="check"><input type="checkbox" id="showGrid" checked> Grid</label>
+          <label class="check"><input type="checkbox" id="glow" checked> Glow</label>
+        </div>
+        <div class="subhead">Hue</div>
+        <div id="hueParams"></div>
+        <div class="subhead">Spectrograph</div>
+        <canvas id="spectroCanvas" width="280" height="90"></canvas>
+      </fieldset>
+
+      <fieldset class="group" id="presetsSection">
+        <legend>Presets</legend>
+        <div class="row preset-actions">
+          <button id="savePresetBtn" class="wide-btn ghost" type="button">Save</button>
+          <button id="randomizeBtn" class="wide-btn ghost" type="button">Randomize</button>
+        </div>
+        <div id="presetList" class="preset-list"></div>
+      </fieldset>
+
+      <div id="compactParams" class="section"></div>
+
+      <div id="effectsParams" class="section"></div>
+
+      <div id="toneGroup" class="section"></div>
+
+      <div id="displayParams" class="section"></div>
+    </div>
+    </div>
+
+    <!-- Status strip. Says in words what the red transport buttons say
+         in colour, so a held or muted signal is never carried by hue
+         alone. Updated from updateFooter() in script.js. -->
+    <div class="panel-footer" role="status" aria-live="polite">
+      <span id="footSource">Test tone</span>
+      <span class="foot-sep" aria-hidden="true">/</span>
+      <span id="footMode">XY</span>
+      <span class="foot-sep" aria-hidden="true">/</span>
+      <span id="footFreq" class="foot-num">220 : 330 Hz</span>
+      <span class="foot-sep" aria-hidden="true">/</span>
+      <span class="foot-num">32768 pt</span>
+      <span class="foot-spacer"></span>
+      <span id="footState" class="foot-state" hidden></span>
+      <span id="footBypass" class="foot-num">4 of 4 bypassed</span>
+    </div>
+  </div>
+</div>
+<script src="script.js"></script>
+</body>
+</html>

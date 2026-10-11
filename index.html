@@ -1,102 +1,889 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
+<meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Oscilloscope Visualizer</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<title>L9 Loop</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@400;500;600;700;800&display=swap">
-<link rel="stylesheet" href="style.css">
+<style>
+  html, body { margin: 0; height: 100%; background: #242324; overflow: hidden; }
+  #stage { position: absolute; left: 0; top: 0; transform-origin: 0 0; color: #ebebeb;
+    font-family: 'Barlow Semi Condensed', 'Segoe UI', system-ui, sans-serif; user-select: none; -webkit-user-select: none; }
+  #panel { position: absolute; left: 0; top: 0; width: 100%; height: 100%; background: linear-gradient(to bottom, #2b2a2d, #242324 48px); }
+  button { outline: none; }
+  button:focus-visible { box-shadow: 0 0 0 2px #cfabf6 !important; }
+  #tip { position: absolute; display: none; padding: 3px 7px; border-radius: 3px; background: #050406; border: 1px solid #515053; color: #cfabf6;
+    font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; white-space: nowrap; pointer-events: none; z-index: 10; transform: translateX(-50%); }
+</style>
 </head>
 <body>
-<div id="app">
-  <div id="stage">
-    <canvas id="scope" width="900" height="900"></canvas>
-  </div>
+<div id="stage"><div id="panel" aria-label="Loop panel"></div><div id="tip"></div></div>
+<input id="fileIn" type="file" accept="audio/*" hidden>
+<pre id="__report" hidden></pre>
+<script>
+'use strict';
+/* L9 Loop prototype.
+   Engine and controls follow the original Oscilloscope Visualizer (Documents/Code/oscilloscope-visualizer, script.js):
+   X and Y channels, each a fundamental (wave, freq 20-500 Hz, phase, phase speed, gain) plus two chord layers chained
+   fundamental -> Chord -> Chord 2 (wave, gain, detune, multiple / divide 1-13). A chord layer either adds into its channel
+   or, with FM on (the ring between it and its mother), frequency-modulates its mother and leaves the mix.
+   Effects: Filter -> Band Pass -> Saturation -> Chorus, each bypassable. Output: 0.2 gain, then the original's fatigue guard.
+   Panel: osc 1-3 = X (left, red), osc 4-6 = Y (right, green). The panel fills the window; L9 landscape, L9v portrait. */
 
-  <div id="panel">
-    <div class="panel-header">
-      <h1>Oscilloscope Visualizer</h1>
-      <div class="header-actions">
-        <button id="muteBtn" class="wide-btn ghost">Mute Tone</button>
-        <button id="pauseBtn" class="wide-btn ghost">Pause Signal</button>
-        <button id="freezeBtn" class="wide-btn">Freeze</button>
-        <button id="resetBtn" class="wide-btn ghost">Reset</button>
-        <button id="fullscreenBtn" class="wide-btn ghost">Fullscreen</button>
-      </div>
-    </div>
+var REPORT = [];
+window.addEventListener('error', function (e) { REPORT.push('ERROR ' + e.message + ' @' + e.lineno); });
 
-    <!-- The card track. Its column count is not declared anywhere: see
-         #panelTrack's column-width in style.css. Card order here is the
-         flow order, which is why Effects sits directly after Master -
-         it used to be pinned there with grid-column:3, which only ever
-         held at exactly three columns. -->
-    <div id="panelScroll">
-    <div id="panelTrack">
-      <fieldset class="group" id="sourceDisplaySection">
-        <legend>Source &amp; Display</legend>
-        <div class="row">
-          <label for="sourceSelect">Input</label>
-          <div id="sourceSelect" class="knob-select"></div>
-        </div>
-        <div class="row" id="fileRow" hidden>
-          <label for="fileInput">File</label>
-          <input type="file" id="fileInput" accept="audio/*">
-        </div>
-        <div class="row" id="liveStatusRow" hidden>
-          <span id="liveStatus" class="hint">Requesting access...</span>
-        </div>
-        <div class="row">
-          <label for="modeSelect">Mode</label>
-          <div id="modeSelect" class="knob-select"></div>
-        </div>
-        <div class="row checks">
-          <label class="check"><input type="checkbox" id="showGrid" checked> Grid</label>
-          <label class="check"><input type="checkbox" id="glow" checked> Glow</label>
-        </div>
-        <div class="subhead">Hue</div>
-        <div id="hueParams"></div>
-        <div class="subhead">Spectrograph</div>
-        <canvas id="spectroCanvas" width="280" height="90"></canvas>
-      </fieldset>
+// ---------------------------------------------------------------- palette and helpers
+var P = { ink: '#ebebeb', inkDim: '#a6a4a8', inkMute: '#8f8d92', line: '#515053', accent: '#cfabf6', accent3: '#af78ed', select: '#eded78',
+  rec: '#f0484a', off: '#3d3b40', byp: '#3568b8', X: '#e5484d', Y: '#3fbf6a', idle: '#77757b' };
+var TAU = Math.PI * 2;
+function clamp(v, a, b) { a = a == null ? 0 : a; b = b == null ? 1 : b; return v < a ? a : v > b ? b : v; }
+var stage = document.getElementById('stage'), panel = document.getElementById('panel'), tip = document.getElementById('tip');
+function el(tag, style, parent, text) {
+  var e = document.createElement(tag);
+  if (style) e.style.cssText = style;
+  if (text != null) e.textContent = text;
+  (parent || panel).appendChild(e);
+  return e;
+}
+function at(x, y, w, h) { return 'position:absolute;left:' + x + 'px;top:' + y + 'px' + (w != null ? ';width:' + w + 'px' : '') + (h != null ? ';height:' + h + 'px' : ''); }
+function PRINT(fs, col) { return 'font-size:' + fs + 'px;font-weight:800;letter-spacing:0.12em;text-transform:uppercase;color:' + (col || P.inkMute) + ';line-height:1;white-space:nowrap'; }
+function tx(x, y, t, st) { return el('span', at(x, y) + ';' + st, panel, t); }
+function cl(x, y, w, t, st) { return el('span', at(x - w / 2, y, w) + ';text-align:center;' + st, panel, t); }
 
-      <fieldset class="group" id="presetsSection">
-        <legend>Presets</legend>
-        <div class="row preset-actions">
-          <button id="savePresetBtn" class="wide-btn ghost" type="button">Save</button>
-          <button id="randomizeBtn" class="wide-btn ghost" type="button">Randomize</button>
-        </div>
-        <div id="presetList" class="preset-list"></div>
-      </fieldset>
+// ---------------------------------------------------------------- parameters (ranges and defaults from the original app)
+var deg = function (v) { return Math.round(v) + '°'; };
+var PD = {
+  freq: { min: 20, max: 500, def: 220, step: 1, f: function (v) { return Math.round(v) + ' Hz'; } },
+  phase: { min: 0, max: 360, def: 0, step: 1, f: deg },
+  speed: { min: 0, max: 360, def: 0, step: 1, f: function (v) { return Math.round(v) + '°/s'; } },
+  mgain: { min: 0.1, max: 1.25, def: 1, step: 0.01, f: function (v) { return v.toFixed(2); } },
+  cgain: { min: 0, max: 1, def: 0.5, step: 0.01, f: function (v) { return v.toFixed(2); } },
+  det: { min: -1, max: 1, def: 0, step: 0.0001, f: function (v) { var c = v * 100; return (c > 0 ? '+' : '') + c.toFixed(1) + ' ct'; } },
+  mul: { min: 1, max: 13, def: 1, step: 1, f: function (v) { return '×' + v; } },
+  div: { min: 1, max: 13, def: 1, step: 1, f: function (v) { return '÷' + v; } },
+  hue: { min: 0, max: 360, def: 90, step: 1, f: deg },
+  hueSpeed: { min: 0, max: 360, def: 0, step: 1, f: function (v) { return Math.round(v) + '°/s'; } },
+  rotation: { min: 0, max: 360, def: 0, step: 1, f: deg },
+  persistence: { min: 0.01, max: 1, def: 0.24, step: 0, log: true, logMid: 0.7, f: function (v) { return v.toFixed(3); } },
+  hold: { min: 0, max: 60, def: 0, step: 1, f: function (v) { return v + ' frames'; } },
+  gain: { min: 0.1, max: 12.5, def: 0.69, step: 0.01, f: function (v) { return v.toFixed(2) + '×'; } },
+  lineWidth: { min: 0.5, max: 15, def: 1.5, step: 0.1, f: function (v) { return v.toFixed(1) + ' px'; } },
+  masterTime: { min: 0.0001, max: 1, def: 1, step: 0, log: true, f: function (v) { return (v < 0.01 ? v.toFixed(4) : v.toFixed(3)) + '×'; } },
+  masterTimeFast: { min: 1, max: 1000, def: 1, step: 0, log: true, f: function (v) { return v.toFixed(2) + '×'; } },
+  masterDetune: { min: 0, max: 1, def: 1, step: 0.01, f: function (v) { return v.toFixed(2); } },
+  filterAmount: { min: -1, max: 1, def: 0, step: 0.001, snapZero: true, f: function (v) {
+    if (v < -0.001) return 'LP ' + Math.round(20000 * Math.pow(20 / 20000, Math.min(1, -v))) + ' Hz';
+    if (v > 0.001) return 'HP ' + Math.round(20 * Math.pow(1000, Math.min(1, v))) + ' Hz';
+    return 'Neutral'; } },
+  bandpassFreq: { min: 20, max: 20000, def: 1000, step: 1, log: true, f: function (v) { return v >= 1000 ? (v / 1000).toFixed(2) + ' kHz' : Math.round(v) + ' Hz'; } },
+  saturation: { min: 0, max: 100, def: 0, step: 1, f: function (v) { return v + '%'; } },
+  chorusVoices: { min: 0, max: 7, def: 0, step: 1, f: function (v) { return v === 0 ? 'Off' : v + (v === 1 ? ' voice' : ' voices'); } }
+};
+function toV(d, x) {
+  if (d.log) {
+    if (d.logMid) return x <= d.logMid ? 0.5 * Math.log(x / d.min) / Math.log(d.logMid / d.min) : 0.5 + 0.5 * Math.log(x / d.logMid) / Math.log(d.max / d.logMid);
+    return Math.log(x / d.min) / Math.log(d.max / d.min);
+  }
+  return clamp((x - d.min) / (d.max - d.min));
+}
+function fromV(d, v) {
+  v = clamp(v);
+  var x = d.log ? (d.logMid ? (v <= 0.5 ? d.min * Math.pow(d.logMid / d.min, v / 0.5) : d.logMid * Math.pow(d.max / d.logMid, (v - 0.5) / 0.5)) : d.min * Math.pow(d.max / d.min, v))
+                : d.min + v * (d.max - d.min);
+  if (d.step) x = +(Math.round(x / d.step) * d.step).toFixed(6);
+  if (d.snapZero && Math.abs(x) < 0.03 * (d.max - d.min)) x = 0;
+  return clamp(x, d.min, d.max);
+}
+var steps = function (d) { var n = d.step ? Math.round((d.max - d.min) / d.step) + 1 : 0; return n && n <= 61 ? n : 0; };
 
-      <div id="compactParams" class="section"></div>
+// ---------------------------------------------------------------- state
+var WAVES = ['Off', 'Sine', 'Triangle', 'Sawtooth', 'Square'];
+var WAVE_IDS = { sine: 1, triangle: 2, sawtooth: 3, square: 4 };
+var MASTER_KEYS = ['rotation', 'persistence', 'hold', 'gain', 'lineWidth', 'masterTime', 'masterTimeFast', 'masterDetune'];
+function defaultOsc() {
+  return [
+    { wave: 1, gain: 1, freq: 220, phase: 0, speed: 0 }, { wave: 0, gain: 0.5, det: 0, mul: 1, div: 1, fm: false }, { wave: 0, gain: 0.5, det: 0, mul: 1, div: 1, fm: false },
+    { wave: 1, gain: 1, freq: 330, phase: 0, speed: 0 }, { wave: 0, gain: 0.5, det: 0, mul: 1, div: 1, fm: false }, { wave: 0, gain: 0.5, det: 0, mul: 1, div: 1, fm: false }
+  ];
+}
+var state = {
+  osc: defaultOsc(),
+  src: 'tone', mode: 'xy', grid: true, glow: true,
+  hue: 90, hueSpeed: 0,
+  fx: { filterAmount: 0, bandpassFreq: 1000, saturation: 0, chorusVoices: 0, byp: { filter: true, bandpass: true, saturation: true, chorus: true } },
+  mute: false, freeze: false, hold: false
+};
+MASTER_KEYS.forEach(function (k) { state[k] = PD[k].def; });
 
-      <div id="effectsParams" class="section"></div>
+// ---------------------------------------------------------------- presets: the original app's 17, then the user's own
+var ORIGINAL_PRESETS = [ // verbatim from oscilloscope-visualizer/script.js DEFAULT_PRESETS (17 presets)
+  {"id":"1789490218576_axrjck","name":"Lasso","savedAt":1789490218576,"state":{"params":{"freqX":{"value":220,"lfoSpeed":0,"lfoAmount":0},"phaseX":{"value":0,"lfoSpeed":0,"lfoAmount":0},"oscGainX":{"value":1,"lfoSpeed":2.6728217969848598,"lfoAmount":1},"freqY":{"value":221,"lfoSpeed":0,"lfoAmount":0},"phaseY":{"value":0,"lfoSpeed":13.151339959476907,"lfoAmount":0},"oscGainY":{"value":0.9,"lfoSpeed":3.0127979303717876,"lfoAmount":0},"chordX_gain":{"value":0.5,"lfoSpeed":0,"lfoAmount":0},"chordX_detune":{"value":-0.01,"lfoSpeed":0,"lfoAmount":0},"chord2X_gain":{"value":0.5,"lfoSpeed":0,"lfoAmount":0},"chord2X_detune":{"value":0,"lfoSpeed":0,"lfoAmount":0},"chordY_gain":{"value":0.5,"lfoSpeed":0,"lfoAmount":0},"chordY_detune":{"value":0,"lfoSpeed":0,"lfoAmount":0},"chord2Y_gain":{"value":0.5,"lfoSpeed":0,"lfoAmount":0},"chord2Y_detune":{"value":0.04,"lfoSpeed":0,"lfoAmount":0},"rotation":{"value":0,"lfoSpeed":0,"lfoAmount":0},"hue":{"value":90,"lfoSpeed":0,"lfoAmount":0},"hueRotationSpeed":{"value":124,"lfoSpeed":0,"lfoAmount":0},"masterDetune":{"value":1,"lfoSpeed":0,"lfoAmount":0},"persistence":{"value":0.022416542460062305,"lfoSpeed":0,"lfoAmount":0},"hold":{"value":8,"lfoSpeed":0,"lfoAmount":0},"gain":{"value":0.36,"lfoSpeed":0,"lfoAmount":0},"lineWidth":{"value":3.7,"lfoSpeed":0,"lfoAmount":0},"masterTime":{"value":0.09594006315159331,"lfoSpeed":0,"lfoAmount":0},"masterTimeFast":{"value":1,"lfoSpeed":0,"lfoAmount":0}},"waveX":"sine","waveY":"sine","chords":{"chordX":{"enabled":true,"wave":"sine","multiple":"2"},"chord2X":{"enabled":false,"wave":"sine","multiple":"1"},"chordY":{"enabled":false,"wave":"sine","multiple":"1"},"chord2Y":{"enabled":true,"wave":"sine","multiple":"3"}},"display":{"mode":"xy","showGrid":false,"glow":true,"invertXY":false}}},
+  {"id":"1789490535229_19sd7p","name":"Klaxon","savedAt":1789490535229,"state":{"params":{"freqX":{"value":340.57140190148755,"lfoSpeed":0,"lfoAmount":0},"phaseX":{"value":199.26958909576308,"lfoSpeed":0,"lfoAmount":0},"oscGainX":{"value":0.35676228150596156,"lfoSpeed":2.6728217969848598,"lfoAmount":1},"freqY":{"value":145.93593368654786,"lfoSpeed":0,"lfoAmount":0},"phaseY":{"value":195.78295837280555,"lfoSpeed":13.151339959476907,"lfoAmount":0},"oscGainY":{"value":0.41379872501254267,"lfoSpeed":3.0127979303717876,"lfoAmount":0},"chordX_gain":{"value":0.1272788138883506,"lfoSpeed":0,"lfoAmount":0},"chordX_detune":{"value":0.037787044224455085,"lfoSpeed":0,"lfoAmount":0},"chord2X_gain":{"value":0.323878687051675,"lfoSpeed":0,"lfoAmount":0},"chord2X_detune":{"value":-0.00675674049531777,"lfoSpeed":0,"lfoAmount":0},"chordY_gain":{"value":0.8804304168734881,"lfoSpeed":0,"lfoAmount":0},"chordY_detune":{"value":-0.090183601739031,"lfoSpeed":0,"lfoAmount":0},"chord2Y_gain":{"value":0.271306341107605,"lfoSpeed":0,"lfoAmount":0},"chord2Y_detune":{"value":0.11292824556167785,"lfoSpeed":0,"lfoAmount":0},"rotation":{"value":19.612590129183147,"lfoSpeed":0,"lfoAmount":0},"hue":{"value":129.0553777035017,"lfoSpeed":0,"lfoAmount":0},"hueRotationSpeed":{"value":-16,"lfoSpeed":0,"lfoAmount":0},"masterDetune":{"value":6.81619612793774,"lfoSpeed":0,"lfoAmount":0},"persistence":{"value":0.023314308316634096,"lfoSpeed":0,"lfoAmount":0},"hold":{"value":13.987699851146154,"lfoSpeed":0,"lfoAmount":0},"gain":{"value":0.5014500456979458,"lfoSpeed":0,"lfoAmount":0},"lineWidth":{"value":2.9646409637623132,"lfoSpeed":0,"lfoAmount":0},"masterTime":{"value":0.008017426233222559,"lfoSpeed":0,"lfoAmount":0},"masterTimeFast":{"value":130.48943043578453,"lfoSpeed":0,"lfoAmount":0}},"waveX":"square","waveY":"sawtooth","chords":{"chordX":{"enabled":true,"wave":"square","multiple":"3"},"chord2X":{"enabled":false,"wave":"square","multiple":"2"},"chordY":{"enabled":true,"wave":"sawtooth","multiple":"2"},"chord2Y":{"enabled":true,"wave":"triangle","multiple":"0.5"}},"display":{"mode":"xy","showGrid":false,"glow":true,"invertXY":false}}},
+  {"id":"1789490643188_0pxnuq","name":"Sawtooth","savedAt":1789490643188,"state":{"params":{"freqX":{"value":446.20312380692474,"lfoSpeed":0,"lfoAmount":0},"phaseX":{"value":244.62367042077534,"lfoSpeed":0,"lfoAmount":0},"oscGainX":{"value":1.235472518029254,"lfoSpeed":2.6728217969848598,"lfoAmount":1},"freqY":{"value":336.1524324118554,"lfoSpeed":0,"lfoAmount":0},"phaseY":{"value":289.0363186663409,"lfoSpeed":13.151339959476907,"lfoAmount":0},"oscGainY":{"value":0.6594390611491932,"lfoSpeed":3.0127979303717876,"lfoAmount":0},"chordX_gain":{"value":0.058924986208741315,"lfoSpeed":0,"lfoAmount":0},"chordX_detune":{"value":0.18307166730235525,"lfoSpeed":0,"lfoAmount":0},"chord2X_gain":{"value":0.3805655215781587,"lfoSpeed":0,"lfoAmount":0},"chord2X_detune":{"value":0.009999703024266587,"lfoSpeed":0,"lfoAmount":0},"chordY_gain":{"value":0.10675783954163331,"lfoSpeed":0,"lfoAmount":0},"chordY_detune":{"value":0.04255078546465593,"lfoSpeed":0,"lfoAmount":0},"chord2Y_gain":{"value":0.08046614475047531,"lfoSpeed":0,"lfoAmount":0},"chord2Y_detune":{"value":-0.16350983296710708,"lfoSpeed":0,"lfoAmount":0},"rotation":{"value":338.6395996660184,"lfoSpeed":0,"lfoAmount":0},"hue":{"value":163.18723128270076,"lfoSpeed":0,"lfoAmount":0},"hueRotationSpeed":{"value":299.80281440504586,"lfoSpeed":0,"lfoAmount":0},"masterDetune":{"value":5.570875369718943,"lfoSpeed":0,"lfoAmount":0},"persistence":{"value":0.23673416389838772,"lfoSpeed":0,"lfoAmount":0},"hold":{"value":9.715237744837733,"lfoSpeed":0,"lfoAmount":0},"gain":{"value":0.44,"lfoSpeed":0,"lfoAmount":0},"lineWidth":{"value":2.1,"lfoSpeed":0,"lfoAmount":0},"masterTime":{"value":0.1485935642287007,"lfoSpeed":0,"lfoAmount":0},"masterTimeFast":{"value":3.872576449216172,"lfoSpeed":0,"lfoAmount":0}},"waveX":"sawtooth","waveY":"sine","chords":{"chordX":{"enabled":true,"wave":"sine","multiple":"2"},"chord2X":{"enabled":false,"wave":"triangle","multiple":"0.5"},"chordY":{"enabled":true,"wave":"square","multiple":"5"},"chord2Y":{"enabled":true,"wave":"triangle","multiple":"5"}},"display":{"mode":"xy","showGrid":false,"glow":true,"invertXY":false}}},
+  {"id":"1789490659537_7rp52l","name":"Spelling","savedAt":1789490659537,"state":{"params":{"freqX":{"value":276.6391052051607,"lfoSpeed":0,"lfoAmount":0},"phaseX":{"value":306.74296962863343,"lfoSpeed":0,"lfoAmount":0},"oscGainX":{"value":0.3911034990661513,"lfoSpeed":2.6728217969848598,"lfoAmount":1},"freqY":{"value":346.0821574439154,"lfoSpeed":0,"lfoAmount":0},"phaseY":{"value":334.36220373275734,"lfoSpeed":13.151339959476907,"lfoAmount":0},"oscGainY":{"value":1.2267825263284957,"lfoSpeed":3.0127979303717876,"lfoAmount":0},"chordX_gain":{"value":0.9725286141473468,"lfoSpeed":0,"lfoAmount":0},"chordX_detune":{"value":-0.00808983352121842,"lfoSpeed":0,"lfoAmount":0},"chord2X_gain":{"value":0.19437897894936762,"lfoSpeed":0,"lfoAmount":0},"chord2X_detune":{"value":0.12803423694287858,"lfoSpeed":0,"lfoAmount":0},"chordY_gain":{"value":0.7089458584742189,"lfoSpeed":0,"lfoAmount":0},"chordY_detune":{"value":0.08281631181833143,"lfoSpeed":0,"lfoAmount":0},"chord2Y_gain":{"value":0.09825759465633666,"lfoSpeed":0,"lfoAmount":0},"chord2Y_detune":{"value":-0.11927742410350871,"lfoSpeed":0,"lfoAmount":0},"rotation":{"value":237.19144556919304,"lfoSpeed":0,"lfoAmount":0},"hue":{"value":296.3337056559586,"lfoSpeed":0,"lfoAmount":0},"hueRotationSpeed":{"value":-57.65008830716937,"lfoSpeed":0,"lfoAmount":0},"masterDetune":{"value":6.5527341522203635,"lfoSpeed":0,"lfoAmount":0},"persistence":{"value":0.01041928413638209,"lfoSpeed":0,"lfoAmount":0},"hold":{"value":32.43100830119674,"lfoSpeed":0,"lfoAmount":0},"gain":{"value":0.1584613447963808,"lfoSpeed":0,"lfoAmount":0},"lineWidth":{"value":1.6,"lfoSpeed":0,"lfoAmount":0},"masterTime":{"value":0.0015994436795241527,"lfoSpeed":0,"lfoAmount":0},"masterTimeFast":{"value":135.03353224159895,"lfoSpeed":0,"lfoAmount":0}},"waveX":"sine","waveY":"square","chords":{"chordX":{"enabled":true,"wave":"square","multiple":"5"},"chord2X":{"enabled":false,"wave":"square","multiple":"4"},"chordY":{"enabled":true,"wave":"triangle","multiple":"0.5"},"chord2Y":{"enabled":true,"wave":"triangle","multiple":"1"}},"display":{"mode":"xy","showGrid":false,"glow":true,"invertXY":false}}},
+  {"id":"1789491230107_9gqyfq","name":"Messages","savedAt":1789491230107,"state":{"params":{"freqX":{"value":242.20336292562803,"lfoSpeed":0,"lfoAmount":0},"phaseX":{"value":343.9566134725145,"lfoSpeed":0,"lfoAmount":0},"oscGainX":{"value":0.4441487956325668,"lfoSpeed":2.6728217969848598,"lfoAmount":0.059},"freqY":{"value":167,"lfoSpeed":0,"lfoAmount":0},"phaseY":{"value":140.5390471725581,"lfoSpeed":13.151339959476907,"lfoAmount":0},"oscGainY":{"value":1.010858121433383,"lfoSpeed":3.0127979303717876,"lfoAmount":0},"chordX_gain":{"value":0.8061809809104732,"lfoSpeed":0,"lfoAmount":0},"chordX_detune":{"value":-0.1,"lfoSpeed":0,"lfoAmount":0},"chord2X_gain":{"value":0.82,"lfoSpeed":0.464,"lfoAmount":3.723659869529944},"chord2X_detune":{"value":0.12,"lfoSpeed":0,"lfoAmount":0},"chordY_gain":{"value":0.6033301347372769,"lfoSpeed":0,"lfoAmount":0},"chordY_detune":{"value":0.0904675695353685,"lfoSpeed":0,"lfoAmount":0},"chord2Y_gain":{"value":0.10943163619589247,"lfoSpeed":0,"lfoAmount":0},"chord2Y_detune":{"value":0.07580762440355027,"lfoSpeed":0,"lfoAmount":0},"rotation":{"value":216.8403179387259,"lfoSpeed":0,"lfoAmount":0},"hue":{"value":7.285659235213582,"lfoSpeed":0,"lfoAmount":0},"hueRotationSpeed":{"value":-3,"lfoSpeed":0,"lfoAmount":0},"masterDetune":{"value":6.144645387112682,"lfoSpeed":0,"lfoAmount":0},"persistence":{"value":0.20592534605846344,"lfoSpeed":0,"lfoAmount":0},"hold":{"value":12,"lfoSpeed":0,"lfoAmount":0},"gain":{"value":0.29144149896531807,"lfoSpeed":0,"lfoAmount":0},"lineWidth":{"value":2.3,"lfoSpeed":0,"lfoAmount":0},"masterTime":{"value":0.0052360043658575,"lfoSpeed":0,"lfoAmount":0},"masterTimeFast":{"value":14.060475241299136,"lfoSpeed":0,"lfoAmount":0}},"waveX":"triangle","waveY":"sawtooth","chords":{"chordX":{"enabled":true,"wave":"sine","multiple":"2"},"chord2X":{"enabled":true,"wave":"triangle","multiple":"1"},"chordY":{"enabled":true,"wave":"sawtooth","multiple":"2"},"chord2Y":{"enabled":true,"wave":"sine","multiple":"3"}},"display":{"mode":"xy","showGrid":false,"glow":true,"invertXY":false}}},
+  {"id":"1789491819004_lsm8gy","name":"Loom","savedAt":1789491819004,"state":{"params":{"freqX":{"value":47.28684748766998,"lfoSpeed":0,"lfoAmount":0},"phaseX":{"value":179.28387763896083,"lfoSpeed":0,"lfoAmount":0},"oscGainX":{"value":0.360866829405758,"lfoSpeed":0,"lfoAmount":0},"freqY":{"value":62.87023206905076,"lfoSpeed":0,"lfoAmount":0},"phaseY":{"value":272.1382685140712,"lfoSpeed":0,"lfoAmount":0},"oscGainY":{"value":0.16286465303841285,"lfoSpeed":0,"lfoAmount":0},"chordX_gain":{"value":0.5466249640189337,"lfoSpeed":0,"lfoAmount":0},"chordX_detuneCoarse":{"value":-0.8006985398131103,"lfoSpeed":0,"lfoAmount":0},"chordX_detuneFine":{"value":-0.8693424955206661,"lfoSpeed":0,"lfoAmount":0},"chord2X_gain":{"value":0.9291964894192889,"lfoSpeed":0,"lfoAmount":0},"chord2X_detuneCoarse":{"value":-0.051029277307188536,"lfoSpeed":0,"lfoAmount":0},"chord2X_detuneFine":{"value":-0.19993287837586204,"lfoSpeed":0,"lfoAmount":0},"chordY_gain":{"value":0.4913617347457936,"lfoSpeed":0,"lfoAmount":0},"chordY_detuneCoarse":{"value":-0.11819324378556484,"lfoSpeed":0,"lfoAmount":0},"chordY_detuneFine":{"value":-0.7600522909085263,"lfoSpeed":0,"lfoAmount":0},"chord2Y_gain":{"value":0.08814952010499211,"lfoSpeed":0,"lfoAmount":0},"chord2Y_detuneCoarse":{"value":0.19426108642039708,"lfoSpeed":0,"lfoAmount":0},"chord2Y_detuneFine":{"value":-0.5056888111013795,"lfoSpeed":0,"lfoAmount":0},"rotation":{"value":0,"lfoSpeed":0,"lfoAmount":0},"hue":{"value":90,"lfoSpeed":0,"lfoAmount":0},"hueRotationSpeed":{"value":-1,"lfoSpeed":0,"lfoAmount":0},"masterDetune":{"value":1,"lfoSpeed":0,"lfoAmount":0},"persistence":{"value":0.24,"lfoSpeed":0,"lfoAmount":0},"hold":{"value":0,"lfoSpeed":0,"lfoAmount":0},"gain":{"value":1.08,"lfoSpeed":0,"lfoAmount":0},"lineWidth":{"value":1.5,"lfoSpeed":0,"lfoAmount":0},"masterTime":{"value":1,"lfoSpeed":0,"lfoAmount":0},"masterTimeFast":{"value":76.20790100254119,"lfoSpeed":0,"lfoAmount":0}},"waveX":"sawtooth","waveY":"sawtooth","chords":{"chordX":{"enabled":false,"wave":"sine","multiple":"2"},"chord2X":{"enabled":false,"wave":"sawtooth","multiple":"3"},"chordY":{"enabled":true,"wave":"sawtooth","multiple":"0.25"},"chord2Y":{"enabled":false,"wave":"square","multiple":"0.25"}},"display":{"mode":"xy","showGrid":true,"glow":true,"invertXY":false}}},
+  {"id":"1789495363762_lyhds4","name":"Tree Net","savedAt":1789495363762,"state":{"params":{"freqX":{"value":220,"lfoSpeed":0,"lfoAmount":0},"phaseX":{"value":0,"lfoSpeed":0,"lfoAmount":0},"oscGainX":{"value":1.17,"lfoSpeed":0,"lfoAmount":0},"freqY":{"value":330,"lfoSpeed":0,"lfoAmount":0},"phaseY":{"value":0,"lfoSpeed":0,"lfoAmount":0},"oscGainY":{"value":1,"lfoSpeed":0,"lfoAmount":0},"chordX_gain":{"value":0.57,"lfoSpeed":0,"lfoAmount":0},"chordX_detuneCoarse":{"value":0,"lfoSpeed":0,"lfoAmount":0},"chordX_detuneFine":{"value":0.06,"lfoSpeed":0,"lfoAmount":0},"chord2X_gain":{"value":0.5,"lfoSpeed":0,"lfoAmount":0},"chord2X_detuneCoarse":{"value":0,"lfoSpeed":0,"lfoAmount":0},"chord2X_detuneFine":{"value":0,"lfoSpeed":0,"lfoAmount":0},"chordY_gain":{"value":0.5,"lfoSpeed":0,"lfoAmount":0},"chordY_detuneCoarse":{"value":0,"lfoSpeed":0,"lfoAmount":0},"chordY_detuneFine":{"value":0,"lfoSpeed":0,"lfoAmount":0},"chord2Y_gain":{"value":0.5,"lfoSpeed":0,"lfoAmount":0},"chord2Y_detuneCoarse":{"value":0,"lfoSpeed":0,"lfoAmount":0},"chord2Y_detuneFine":{"value":0,"lfoSpeed":0,"lfoAmount":0},"rotation":{"value":0,"lfoSpeed":0,"lfoAmount":0},"hue":{"value":90,"lfoSpeed":0,"lfoAmount":0},"hueRotationSpeed":{"value":0,"lfoSpeed":0,"lfoAmount":0},"masterDetune":{"value":1,"lfoSpeed":0,"lfoAmount":0},"persistence":{"value":0.01,"lfoSpeed":0,"lfoAmount":0},"hold":{"value":7,"lfoSpeed":0,"lfoAmount":0},"gain":{"value":0.43,"lfoSpeed":0,"lfoAmount":0},"lineWidth":{"value":1.5,"lfoSpeed":0,"lfoAmount":0},"masterTime":{"value":0.15848931924611134,"lfoSpeed":0,"lfoAmount":0},"masterTimeFast":{"value":44.56562483975033,"lfoSpeed":0,"lfoAmount":0}},"waveX":"sine","waveY":"sine","chords":{"chordX":{"enabled":true,"function":"modulate","wave":"sawtooth","multiple":"3"},"chord2X":{"enabled":false,"function":"chord","wave":"sine","multiple":"1"},"chordY":{"enabled":true,"function":"chord","wave":"sine","multiple":"2"},"chord2Y":{"enabled":false,"function":"chord","wave":"sine","multiple":"1"}},"display":{"mode":"xy","showGrid":true,"glow":false,"invertXY":false}}},
+  {"id":"1789496631085_7xibkz","name":"Plaid","savedAt":1789496631085,"state":{"params":{"freqX":{"value":171,"lfoSpeed":0,"lfoAmount":0},"phaseX":{"value":192.83977480878698,"lfoSpeed":0.118,"lfoAmount":61.919999999999995},"oscGainX":{"value":1.1293111068434423,"lfoSpeed":0,"lfoAmount":0},"freqY":{"value":342.7072145986935,"lfoSpeed":0,"lfoAmount":0},"phaseY":{"value":236.90865653949388,"lfoSpeed":3.723659869529944,"lfoAmount":97.92},"oscGainY":{"value":0.6342817281935782,"lfoSpeed":0,"lfoAmount":0},"chordX_gain":{"value":0.6457061461873929,"lfoSpeed":0,"lfoAmount":0},"chordX_detuneCoarse":{"value":-0.5115253948854623,"lfoSpeed":0,"lfoAmount":0},"chordX_detuneFine":{"value":-0.3133848899731895,"lfoSpeed":0,"lfoAmount":0},"chord2X_gain":{"value":0.12068338202636975,"lfoSpeed":0,"lfoAmount":0},"chord2X_detuneCoarse":{"value":-0.44035005748512535,"lfoSpeed":0,"lfoAmount":0},"chord2X_detuneFine":{"value":0.9870775275670112,"lfoSpeed":0,"lfoAmount":0},"chordY_gain":{"value":0.707094895793621,"lfoSpeed":0,"lfoAmount":0},"chordY_detuneCoarse":{"value":0.12342626264490919,"lfoSpeed":0,"lfoAmount":0},"chordY_detuneFine":{"value":0.4147073461474968,"lfoSpeed":0,"lfoAmount":0},"chord2Y_gain":{"value":0.348283883183813,"lfoSpeed":0,"lfoAmount":0},"chord2Y_detuneCoarse":{"value":-0.5801301179627518,"lfoSpeed":0,"lfoAmount":0},"chord2Y_detuneFine":{"value":0.6608094353587455,"lfoSpeed":0,"lfoAmount":0},"rotation":{"value":0,"lfoSpeed":0,"lfoAmount":0},"hue":{"value":90,"lfoSpeed":0,"lfoAmount":0},"hueRotationSpeed":{"value":16,"lfoSpeed":0,"lfoAmount":0},"masterDetune":{"value":1,"lfoSpeed":0,"lfoAmount":0},"persistence":{"value":0.1070445858714103,"lfoSpeed":0,"lfoAmount":0},"hold":{"value":6,"lfoSpeed":0,"lfoAmount":0},"gain":{"value":0.69,"lfoSpeed":0,"lfoAmount":0},"lineWidth":{"value":0.5,"lfoSpeed":0,"lfoAmount":0},"masterTime":{"value":0.05128613839913648,"lfoSpeed":0,"lfoAmount":0},"masterTimeFast":{"value":92.04495717531712,"lfoSpeed":0,"lfoAmount":0}},"waveX":"triangle","waveY":"triangle","chords":{"chordX":{"enabled":false,"function":"modulate","wave":"square","multiple":"3"},"chord2X":{"enabled":false,"function":"chord","wave":"sawtooth","multiple":"5"},"chordY":{"enabled":false,"function":"modulate","wave":"sine","multiple":"4"},"chord2Y":{"enabled":false,"function":"chord","wave":"sine","multiple":"1"}},"display":{"mode":"xy","showGrid":false,"glow":true,"invertXY":false}}},
+  {"id":"1789496837478_n57ba5","name":"Chain Link","savedAt":1789496837478,"state":{"params":{"freqX":{"value":49.5687672842533,"lfoSpeed":0,"lfoAmount":0},"phaseX":{"value":132.9127994757353,"lfoSpeed":0,"lfoAmount":0},"oscGainX":{"value":1.1434813457255553,"lfoSpeed":0,"lfoAmount":0},"freqY":{"value":150.1627383012377,"lfoSpeed":0,"lfoAmount":0},"phaseY":{"value":155.2032144319149,"lfoSpeed":0,"lfoAmount":0},"oscGainY":{"value":0.5961851503279012,"lfoSpeed":0,"lfoAmount":0},"chordX_gain":{"value":0.845967533663512,"lfoSpeed":0,"lfoAmount":0},"chordX_detuneCoarse":{"value":0.10437831397548103,"lfoSpeed":0,"lfoAmount":0},"chordX_detuneFine":{"value":0.43759194209521146,"lfoSpeed":0,"lfoAmount":0},"chord2X_gain":{"value":0.2866622901974124,"lfoSpeed":0,"lfoAmount":0},"chord2X_detuneCoarse":{"value":0.9026004770102443,"lfoSpeed":0,"lfoAmount":0},"chord2X_detuneFine":{"value":-0.535503782999188,"lfoSpeed":0,"lfoAmount":0},"chordY_gain":{"value":0.07600986735677362,"lfoSpeed":0,"lfoAmount":0},"chordY_detuneCoarse":{"value":-0.005673990521112948,"lfoSpeed":0,"lfoAmount":0},"chordY_detuneFine":{"value":-0.13169110566346243,"lfoSpeed":0,"lfoAmount":0},"chord2Y_gain":{"value":0.4963251502720306,"lfoSpeed":0,"lfoAmount":0},"chord2Y_detuneCoarse":{"value":0.18684743595993525,"lfoSpeed":0,"lfoAmount":0},"chord2Y_detuneFine":{"value":0.9465447399212596,"lfoSpeed":0,"lfoAmount":0},"rotation":{"value":0,"lfoSpeed":0,"lfoAmount":0},"hue":{"value":90,"lfoSpeed":0,"lfoAmount":0},"hueRotationSpeed":{"value":-1,"lfoSpeed":0,"lfoAmount":0},"masterDetune":{"value":1,"lfoSpeed":0,"lfoAmount":0},"persistence":{"value":0.01,"lfoSpeed":0,"lfoAmount":0},"hold":{"value":60,"lfoSpeed":0,"lfoAmount":0},"gain":{"value":0.25,"lfoSpeed":0,"lfoAmount":0},"lineWidth":{"value":2.7,"lfoSpeed":0,"lfoAmount":0},"masterTime":{"value":0.01233104833228909,"lfoSpeed":0,"lfoAmount":0},"masterTimeFast":{"value":76.20790100254119,"lfoSpeed":0,"lfoAmount":0}},"waveX":"triangle","waveY":"square","chords":{"chordX":{"enabled":true,"function":"chord","wave":"triangle","multiple":"2"},"chord2X":{"enabled":false,"function":"chord","wave":"sawtooth","multiple":"5"},"chordY":{"enabled":false,"function":"chord","wave":"square","multiple":"4"},"chord2Y":{"enabled":true,"function":"chord","wave":"triangle","multiple":"0.5"}},"display":{"mode":"xy","showGrid":false,"glow":false,"invertXY":false}}},
+  {"id":"1789496947998_ti307g","name":"Ripples","savedAt":1789496947998,"state":{"params":{"freqX":{"value":223,"lfoSpeed":0,"lfoAmount":0},"phaseX":{"value":46.244236825811356,"lfoSpeed":0,"lfoAmount":0},"oscGainX":{"value":0.31,"lfoSpeed":0,"lfoAmount":0},"freqY":{"value":33.0304341047986,"lfoSpeed":0,"lfoAmount":0},"phaseY":{"value":242.31316129833144,"lfoSpeed":0,"lfoAmount":0},"oscGainY":{"value":0.4510156463449606,"lfoSpeed":0,"lfoAmount":0},"chordX_gain":{"value":0.5928923878495922,"lfoSpeed":0,"lfoAmount":0},"chordX_detuneCoarse":{"value":0.9544201718085319,"lfoSpeed":0,"lfoAmount":0},"chordX_detuneFine":{"value":-0.07564921147561798,"lfoSpeed":0,"lfoAmount":0},"chord2X_gain":{"value":0.07913968892168932,"lfoSpeed":0,"lfoAmount":0},"chord2X_detuneCoarse":{"value":0.01,"lfoSpeed":0,"lfoAmount":0},"chord2X_detuneFine":{"value":-0.9324784843981102,"lfoSpeed":0,"lfoAmount":0},"chordY_gain":{"value":0.19861558633334364,"lfoSpeed":0,"lfoAmount":0},"chordY_detuneCoarse":{"value":0.7909597906331269,"lfoSpeed":0,"lfoAmount":0},"chordY_detuneFine":{"value":-0.24214211140871011,"lfoSpeed":0,"lfoAmount":0},"chord2Y_gain":{"value":0.6721373467967501,"lfoSpeed":0,"lfoAmount":0},"chord2Y_detuneCoarse":{"value":-0.15880232681721407,"lfoSpeed":0,"lfoAmount":0},"chord2Y_detuneFine":{"value":0.9769956783638178,"lfoSpeed":0,"lfoAmount":0},"rotation":{"value":0,"lfoSpeed":0,"lfoAmount":0},"hue":{"value":216,"lfoSpeed":0,"lfoAmount":0},"hueRotationSpeed":{"value":0,"lfoSpeed":0,"lfoAmount":0},"masterDetune":{"value":1,"lfoSpeed":0,"lfoAmount":0},"persistence":{"value":0.24,"lfoSpeed":0,"lfoAmount":0},"hold":{"value":2,"lfoSpeed":0,"lfoAmount":0},"gain":{"value":1.25,"lfoSpeed":0,"lfoAmount":0},"lineWidth":{"value":1.5,"lfoSpeed":0,"lfoAmount":0},"masterTime":{"value":1,"lfoSpeed":0,"lfoAmount":0},"masterTimeFast":{"value":10.543868963912587,"lfoSpeed":0,"lfoAmount":0}},"waveX":"square","waveY":"triangle","chords":{"chordX":{"enabled":false,"function":"chord","wave":"sawtooth","multiple":"1","divide":"1"},"chord2X":{"enabled":true,"function":"chord","wave":"sawtooth","multiple":"1","divide":"3"},"chordY":{"enabled":false,"function":"chord","wave":"sine","multiple":"4","divide":"4"},"chord2Y":{"enabled":false,"function":"chord","wave":"square","multiple":"2","divide":"7"}},"display":{"mode":"xy","showGrid":false,"glow":true,"invertXY":false}}},
+  {"id":"1789497553348_3kaovi","name":"CRT","savedAt":1789497553348,"state":{"params":{"freqX":{"value":483.2085733578533,"lfoSpeed":0,"lfoAmount":0},"phaseX":{"value":344.1632676340491,"lfoSpeed":0,"lfoAmount":0},"oscGainX":{"value":0.5708726092153857,"lfoSpeed":0,"lfoAmount":0},"freqY":{"value":53.5870166043868,"lfoSpeed":0,"lfoAmount":0},"phaseY":{"value":170.98123498119378,"lfoSpeed":0,"lfoAmount":0},"oscGainY":{"value":0.748245978165344,"lfoSpeed":0,"lfoAmount":0},"chordX_gain":{"value":0.17092677301850534,"lfoSpeed":0,"lfoAmount":0},"chordX_detuneCoarse":{"value":-0.08015617625843063,"lfoSpeed":0,"lfoAmount":0},"chordX_detuneFine":{"value":-0.031844364468333275,"lfoSpeed":0,"lfoAmount":0},"chord2X_gain":{"value":0.3947544802337851,"lfoSpeed":0,"lfoAmount":0},"chord2X_detuneCoarse":{"value":0.8683734535724086,"lfoSpeed":0,"lfoAmount":0},"chord2X_detuneFine":{"value":-0.8647634886310314,"lfoSpeed":0,"lfoAmount":0},"chordY_gain":{"value":0.8831474129288662,"lfoSpeed":0,"lfoAmount":0},"chordY_detuneCoarse":{"value":-0.9203152215872259,"lfoSpeed":0,"lfoAmount":0},"chordY_detuneFine":{"value":0.28245043339789233,"lfoSpeed":0,"lfoAmount":0},"chord2Y_gain":{"value":0.6613553970806823,"lfoSpeed":0,"lfoAmount":0},"chord2Y_detuneCoarse":{"value":0.5037730444052984,"lfoSpeed":0,"lfoAmount":0},"chord2Y_detuneFine":{"value":0.9016292180537606,"lfoSpeed":0,"lfoAmount":0},"rotation":{"value":0,"lfoSpeed":0,"lfoAmount":0},"hue":{"value":15,"lfoSpeed":0,"lfoAmount":0},"hueRotationSpeed":{"value":0,"lfoSpeed":0,"lfoAmount":0},"masterDetune":{"value":1,"lfoSpeed":0,"lfoAmount":0},"persistence":{"value":0.01,"lfoSpeed":0,"lfoAmount":0},"hold":{"value":7,"lfoSpeed":0,"lfoAmount":0},"gain":{"value":0.76,"lfoSpeed":0,"lfoAmount":0},"lineWidth":{"value":2.5,"lfoSpeed":0,"lfoAmount":0},"masterTime":{"value":0.1651961798229015,"lfoSpeed":0,"lfoAmount":0},"masterTimeFast":{"value":10.543868963912587,"lfoSpeed":0,"lfoAmount":0}},"waveX":"square","waveY":"sawtooth","chords":{"chordX":{"enabled":true,"function":"modulate","wave":"square","multiple":"5","divide":"1"},"chord2X":{"enabled":false,"function":"modulate","wave":"sawtooth","multiple":"5","divide":"6"},"chordY":{"enabled":false,"function":"chord","wave":"square","multiple":"2","divide":"1"},"chord2Y":{"enabled":false,"function":"chord","wave":"sawtooth","multiple":"1","divide":"2"}},"display":{"mode":"xy","showGrid":false,"glow":true,"invertXY":false}}},
+  {"id":"1789497770839_sbazec","name":"Box Lightning","savedAt":1789497770839,"state":{"params":{"freqX":{"value":483.2085733578533,"lfoSpeed":0,"lfoAmount":0},"phaseX":{"value":254,"lfoSpeed":0,"lfoAmount":0},"oscGainX":{"value":0.5708726092153857,"lfoSpeed":0,"lfoAmount":0},"freqY":{"value":157,"lfoSpeed":0,"lfoAmount":0},"phaseY":{"value":143,"lfoSpeed":0,"lfoAmount":0},"oscGainY":{"value":0.57,"lfoSpeed":0,"lfoAmount":0},"chordX_gain":{"value":0.17092677301850534,"lfoSpeed":0,"lfoAmount":0},"chordX_detuneCoarse":{"value":-0.67,"lfoSpeed":0,"lfoAmount":0},"chordX_detuneFine":{"value":-0.27,"lfoSpeed":0,"lfoAmount":0},"chord2X_gain":{"value":0.3947544802337851,"lfoSpeed":0,"lfoAmount":0},"chord2X_detuneCoarse":{"value":0.8683734535724086,"lfoSpeed":0,"lfoAmount":0},"chord2X_detuneFine":{"value":-0.8647634886310314,"lfoSpeed":0,"lfoAmount":0},"chordY_gain":{"value":0.8831474129288662,"lfoSpeed":0.427,"lfoAmount":1.1040023665094496},"chordY_detuneCoarse":{"value":-0.9203152215872259,"lfoSpeed":0,"lfoAmount":0},"chordY_detuneFine":{"value":0.28245043339789233,"lfoSpeed":0,"lfoAmount":0},"chord2Y_gain":{"value":0.6613553970806823,"lfoSpeed":0,"lfoAmount":0},"chord2Y_detuneCoarse":{"value":0.5037730444052984,"lfoSpeed":0,"lfoAmount":0},"chord2Y_detuneFine":{"value":0.9016292180537606,"lfoSpeed":0,"lfoAmount":0},"rotation":{"value":0,"lfoSpeed":0,"lfoAmount":0},"hue":{"value":15,"lfoSpeed":0,"lfoAmount":0},"hueRotationSpeed":{"value":360,"lfoSpeed":0,"lfoAmount":0},"masterDetune":{"value":1,"lfoSpeed":0,"lfoAmount":0},"persistence":{"value":0.01,"lfoSpeed":0,"lfoAmount":0},"hold":{"value":7,"lfoSpeed":0,"lfoAmount":0},"gain":{"value":0.76,"lfoSpeed":0,"lfoAmount":0},"lineWidth":{"value":2.5,"lfoSpeed":0,"lfoAmount":0},"masterTime":{"value":0.03357376142429547,"lfoSpeed":0,"lfoAmount":0},"masterTimeFast":{"value":10.543868963912587,"lfoSpeed":0,"lfoAmount":0}},"waveX":"square","waveY":"square","chords":{"chordX":{"enabled":true,"function":"modulate","wave":"triangle","multiple":"1","divide":"2"},"chord2X":{"enabled":false,"function":"modulate","wave":"sawtooth","multiple":"5","divide":"6"},"chordY":{"enabled":true,"function":"modulate","wave":"sine","multiple":"1","divide":"1"},"chord2Y":{"enabled":true,"function":"modulate","wave":"sawtooth","multiple":"2","divide":"7"}},"display":{"mode":"xy","showGrid":false,"glow":true,"invertXY":false}}},
+  {"id":"1789498097578_fq3ru9","name":"Talking","savedAt":1789498097578,"state":{"params":{"freqX":{"value":105,"lfoSpeed":0,"lfoAmount":0},"phaseX":{"value":99.23699888034716,"lfoSpeed":0,"lfoAmount":0},"oscGainX":{"value":0.91,"lfoSpeed":0,"lfoAmount":0},"freqY":{"value":314.58336123629226,"lfoSpeed":0,"lfoAmount":0},"phaseY":{"value":80.28834399881212,"lfoSpeed":0,"lfoAmount":0},"oscGainY":{"value":0.951954327755574,"lfoSpeed":0,"lfoAmount":0},"chordX_gain":{"value":0.5311801414822165,"lfoSpeed":0.164,"lfoAmount":0.127},"chordX_detuneCoarse":{"value":0,"lfoSpeed":0,"lfoAmount":0},"chordX_detuneFine":{"value":-0.04,"lfoSpeed":0,"lfoAmount":0},"chord2X_gain":{"value":0.04,"lfoSpeed":0.345,"lfoAmount":0.418},"chord2X_detuneCoarse":{"value":1,"lfoSpeed":0,"lfoAmount":0},"chord2X_detuneFine":{"value":-0.22561004652584415,"lfoSpeed":0,"lfoAmount":0},"chordY_gain":{"value":0.41380285255555205,"lfoSpeed":0.354,"lfoAmount":1.4824156947621712},"chordY_detuneCoarse":{"value":-0.78,"lfoSpeed":0,"lfoAmount":0},"chordY_detuneFine":{"value":-0.0291482736803661,"lfoSpeed":0,"lfoAmount":0},"chord2Y_gain":{"value":0.5,"lfoSpeed":0.114,"lfoAmount":50},"chord2Y_detuneCoarse":{"value":-0.07,"lfoSpeed":0,"lfoAmount":0},"chord2Y_detuneFine":{"value":-0.0062488024824693955,"lfoSpeed":0,"lfoAmount":0},"rotation":{"value":0,"lfoSpeed":0,"lfoAmount":0},"hue":{"value":15,"lfoSpeed":0,"lfoAmount":0},"hueRotationSpeed":{"value":360,"lfoSpeed":0,"lfoAmount":0},"masterDetune":{"value":1,"lfoSpeed":0,"lfoAmount":0},"persistence":{"value":0.01,"lfoSpeed":0,"lfoAmount":0},"hold":{"value":7,"lfoSpeed":0,"lfoAmount":0},"gain":{"value":0.76,"lfoSpeed":0,"lfoAmount":0},"lineWidth":{"value":2.5,"lfoSpeed":0,"lfoAmount":0},"masterTime":{"value":0.0449779854893288,"lfoSpeed":0,"lfoAmount":0},"masterTimeFast":{"value":36.982817978026624,"lfoSpeed":0,"lfoAmount":0}},"waveX":"sawtooth","waveY":"triangle","chords":{"chordX":{"enabled":true,"function":"modulate","wave":"sine","multiple":"2","divide":"8"},"chord2X":{"enabled":true,"function":"modulate","wave":"triangle","multiple":"4","divide":"1"},"chordY":{"enabled":true,"function":"modulate","wave":"triangle","multiple":"1","divide":"5"},"chord2Y":{"enabled":true,"function":"modulate","wave":"sawtooth","multiple":"4","divide":"4"}},"display":{"mode":"xy","showGrid":false,"glow":true,"invertXY":false}}},
+  {"id":"1789500877864_nbygec","name":"Tesseract","savedAt":1789500877864,"state":{"params":{"freqX":{"value":220},"phaseX":{"value":0},"oscGainX":{"value":1},"freqY":{"value":330},"phaseY":{"value":0},"oscGainY":{"value":1},"chordX_gain":{"value":0.5},"chordX_detuneCoarse":{"value":0},"chordX_detuneFine":{"value":0.12},"chord2X_gain":{"value":0.5},"chord2X_detuneCoarse":{"value":0},"chord2X_detuneFine":{"value":0},"chordY_gain":{"value":0.5},"chordY_detuneCoarse":{"value":0},"chordY_detuneFine":{"value":0},"chord2Y_gain":{"value":0.5},"chord2Y_detuneCoarse":{"value":0},"chord2Y_detuneFine":{"value":0},"rotation":{"value":0},"hue":{"value":90},"hueRotationSpeed":{"value":62},"persistence":{"value":0.01},"hold":{"value":0},"gain":{"value":0.69},"lineWidth":{"value":1.5},"masterTime":{"value":0.14387985782558455},"masterTimeFast":{"value":142.8893958511102},"masterDetune":{"value":0.22}},"waveX":"sine","waveY":"sine","chords":{"chordX":{"enabled":true,"function":"modulate","wave":"sine","multiple":"5","divide":"8"},"chord2X":{"enabled":false,"function":"chord","wave":"sine","multiple":"1","divide":"1"},"chordY":{"enabled":false,"function":"chord","wave":"sine","multiple":"1","divide":"1"},"chord2Y":{"enabled":false,"function":"chord","wave":"sine","multiple":"1","divide":"1"}},"display":{"mode":"xy","showGrid":false,"glow":true,"invertXY":false}}},
+  {"id":"1789502964591_a5nigk","name":"Power Station","savedAt":1789502964591,"state":{"params":{"freqX":{"value":220},"phaseX":{"value":0},"oscGainX":{"value":1},"freqY":{"value":330},"phaseY":{"value":360},"oscGainY":{"value":1},"chordX_gain":{"value":0.5},"chordX_detuneCoarse":{"value":0},"chordX_detuneFine":{"value":0.25},"chord2X_gain":{"value":0.5},"chord2X_detuneCoarse":{"value":0},"chord2X_detuneFine":{"value":0},"chordY_gain":{"value":0},"chordY_detuneCoarse":{"value":0.17},"chordY_detuneFine":{"value":0},"chord2Y_gain":{"value":0.5},"chord2Y_detuneCoarse":{"value":0},"chord2Y_detuneFine":{"value":0},"rotation":{"value":0},"hue":{"value":90},"hueRotationSpeed":{"value":0},"persistence":{"value":0.24},"hold":{"value":0},"gain":{"value":0.2},"lineWidth":{"value":1.5},"masterTime":{"value":0.4709773263969529},"masterTimeFast":{"value":1},"masterDetune":{"value":0},"saturationGain":{"value":88},"saturationMix":{"value":96},"filterAmount":{"value":-0.091},"chorusVoices":{"value":4}},"waveX":"sine","waveY":"sine","chords":{"chordX":{"enabled":true,"function":"modulate","wave":"sine","multiple":"3","divide":"2"},"chord2X":{"enabled":false,"function":"chord","wave":"sine","multiple":"1","divide":"1"},"chordY":{"enabled":false,"function":"modulate","wave":"triangle","multiple":"8","divide":"5"},"chord2Y":{"enabled":false,"function":"chord","wave":"sine","multiple":"1","divide":"1"}},"display":{"mode":"xy","showGrid":false,"glow":true,"invertXY":false}}},
+  {"id":"1789508304154_j4ripd","name":"Lava Lamp","savedAt":1789508304154,"state":{"params":{"freqX":{"value":220},"phaseX":{"value":44},"phaseSpeedX":{"value":0},"oscGainX":{"value":1},"freqY":{"value":330},"phaseY":{"value":237},"phaseSpeedY":{"value":0},"oscGainY":{"value":1},"chordX_gain":{"value":1},"chordX_detuneCoarse":{"value":0},"chordX_detuneFine":{"value":-0.02},"chord2X_gain":{"value":0.5},"chord2X_detuneCoarse":{"value":0},"chord2X_detuneFine":{"value":0},"chordY_gain":{"value":0.5},"chordY_detuneCoarse":{"value":0},"chordY_detuneFine":{"value":0.01},"chord2Y_gain":{"value":0.5},"chord2Y_detuneCoarse":{"value":0},"chord2Y_detuneFine":{"value":0},"rotation":{"value":0},"hue":{"value":223},"hueRotationSpeed":{"value":0},"persistence":{"value":0.01},"hold":{"value":0},"gain":{"value":0.69},"lineWidth":{"value":1.5},"masterTime":{"value":0.15631476426409538},"masterTimeFast":{"value":189.67059212111465},"masterDetune":{"value":0.05},"saturation":{"value":0},"filterAmount":{"value":0},"chorusVoices":{"value":0},"bandpassFreq":{"value":191.43881425896828}},"waveX":"sine","waveY":"sine","chords":{"chordX":{"enabled":true,"function":"modulate","wave":"sine","multiple":"5","divide":"10"},"chord2X":{"enabled":false,"function":"chord","wave":"sine","multiple":"1","divide":"1"},"chordY":{"enabled":true,"function":"modulate","wave":"sine","multiple":"1","divide":"3"},"chord2Y":{"enabled":false,"function":"chord","wave":"sine","multiple":"1","divide":"1"}},"display":{"mode":"xy","showGrid":false,"glow":true,"invertXY":false},"bandpassBypassed":true}},
+  {"id":"1789508465023_lsqlqb","name":"Corkscrew","savedAt":1789508465023,"state":{"params":{"freqX":{"value":483.2085733578533},"phaseX":{"value":344.1632676340491},"phaseSpeedX":{"value":0},"oscGainX":{"value":0.5708726092153857},"freqY":{"value":53.5870166043868},"phaseY":{"value":170.98123498119378},"phaseSpeedY":{"value":0},"oscGainY":{"value":0.748245978165344},"chordX_gain":{"value":0.17092677301850534},"chordX_detuneCoarse":{"value":-0.08015617625843063},"chordX_detuneFine":{"value":-0.031844364468333275},"chord2X_gain":{"value":0.3947544802337851},"chord2X_detuneCoarse":{"value":0.8683734535724086},"chord2X_detuneFine":{"value":-0.8647634886310314},"chordY_gain":{"value":0.8831474129288662},"chordY_detuneCoarse":{"value":-0.9203152215872259},"chordY_detuneFine":{"value":0.28245043339789233},"chord2Y_gain":{"value":0.6613553970806823},"chord2Y_detuneCoarse":{"value":0.5037730444052984},"chord2Y_detuneFine":{"value":0.9016292180537606},"rotation":{"value":0},"hue":{"value":15},"hueRotationSpeed":{"value":0},"persistence":{"value":0.01},"hold":{"value":7},"gain":{"value":0.96},"lineWidth":{"value":2.5},"masterTime":{"value":0.1651961798229015},"masterTimeFast":{"value":10.543868963912587},"masterDetune":{"value":1},"saturation":{"value":0},"filterAmount":{"value":-0.582},"chorusVoices":{"value":0},"bandpassFreq":{"value":592.9662779048667}},"waveX":"square","waveY":"sawtooth","chords":{"chordX":{"enabled":true,"function":"modulate","wave":"square","multiple":"5","divide":"1"},"chord2X":{"enabled":false,"function":"modulate","wave":"sawtooth","multiple":"5","divide":"6"},"chordY":{"enabled":false,"function":"chord","wave":"square","multiple":"2","divide":"1"},"chord2Y":{"enabled":false,"function":"chord","wave":"sawtooth","multiple":"1","divide":"2"}},"display":{"mode":"xy","showGrid":false,"glow":true,"invertXY":false},"bandpassBypassed":true}}
+];
+// Translate an original preset the way the original applies it: tone params, waves, chord layers and Master
+// (Effects, Trace Hue and Source & Display are excluded, as there). Old single "detune" keys are ignored, as there.
+function fromOriginal(p) {
+  var s = p.state || {}, pr = s.params || {}, chords = s.chords || {};
+  var val = function (k, d) { return pr[k] && typeof pr[k].value === 'number' ? pr[k].value : d; };
+  var out = { name: p.name, osc: [], master: {} };
+  ['X', 'Y'].forEach(function (ch, g) {
+    out.osc[3 * g] = { wave: WAVE_IDS[s['wave' + ch]] || 1, gain: val('oscGain' + ch, 1), freq: val('freq' + ch, g ? 330 : 220), phase: val('phase' + ch, 0), speed: val('phaseSpeed' + ch, 0) };
+    ['chord', 'chord2'].forEach(function (pre, j) {
+      var c = chords[pre + ch] || {}, key = pre + ch + '_';
+      out.osc[3 * g + 1 + j] = { wave: c.enabled ? (WAVE_IDS[c.wave] || 1) : 0, gain: val(key + 'gain', 0.5),
+        det: clamp(val(key + 'detuneCoarse', 0) + val(key + 'detuneFine', 0) / 100, -1, 1),
+        mul: parseInt(c.multiple, 10) || 1, div: parseInt(c.divide, 10) || 1, fm: c.function === 'modulate' };
+    });
+  });
+  MASTER_KEYS.forEach(function (k) { out.master[k] = val(k, PD[k].def); });
+  return out;
+}
+var PRESETS = ORIGINAL_PRESETS.slice().sort(function (a, b) { return b.savedAt - a.savedAt; }).map(fromOriginal);
+var FACTORY = PRESETS.length;
+try { var saved = JSON.parse(localStorage.getItem('l9loop.presets.v2') || '[]'); if (Array.isArray(saved)) PRESETS = PRESETS.concat(saved); } catch (e) { }
+var presetSel = 0;
+function capturePreset(name) {
+  var m = {}; MASTER_KEYS.forEach(function (k) { m[k] = state[k]; });
+  return { name: name, osc: JSON.parse(JSON.stringify(state.osc)), master: m };
+}
+function applyPreset(p) {
+  state.osc = JSON.parse(JSON.stringify(p.osc));
+  MASTER_KEYS.forEach(function (k) { if (typeof p.master[k] === 'number') state[k] = p.master[k]; });
+}
+function savePresets() { try { localStorage.setItem('l9loop.presets.v2', JSON.stringify(PRESETS.slice(FACTORY))); } catch (e) { } }
+// Randomize, scoped as in the original: tone params, waves, multiples / divides and chord enables; FM settings are kept.
+function randomize() {
+  var rnd = function (d) { return d.log ? d.min * Math.pow(d.max / d.min, Math.random()) : d.min + Math.random() * (d.max - d.min); };
+  var pick = function () { return 1 + Math.floor(Math.random() * 4); };
+  state.osc.forEach(function (o, i) {
+    if (i % 3 === 0) { o.wave = pick(); o.freq = rnd(PD.freq); o.phase = rnd(PD.phase); o.speed = rnd(PD.speed); o.gain = rnd(PD.mgain); }
+    else { o.wave = Math.random() < 0.5 ? pick() : 0; o.gain = rnd(PD.cgain); o.det = rnd(PD.det); o.mul = 1 + Math.floor(Math.random() * 13); o.div = 1 + Math.floor(Math.random() * 13); }
+  });
+}
 
-      <div id="toneGroup" class="section"></div>
+// ---------------------------------------------------------------- DSP engine
+function wave(w, t, dt) {
+  var y, b;
+  if (w === 1) return Math.sin(TAU * t);
+  if (w === 2) return t < 0.25 ? 4 * t : t < 0.75 ? 2 - 4 * t : 4 * t - 4;
+  if (w === 3) { b = t + 0.5; b -= Math.floor(b); return 2 * b - 1 - blep(b, dt); }
+  y = t < 0.5 ? 1 : -1;
+  b = t + 0.5; b -= Math.floor(b);
+  return y + blep(t, dt) - blep(b, dt);
+}
+function blep(t, dt) {
+  if (dt <= 0) return 0;
+  var x;
+  if (t < dt) { x = t / dt; return x + x - x * x - 1; }
+  if (t > 1 - dt) { x = (t - 1) / dt; return x * x + x + x + 1; }
+  return 0;
+}
+function rd(buf, pos) {
+  var n = buf.length; pos = pos % n; if (pos < 0) pos += n;
+  var i = Math.floor(pos), f = pos - i, j = i + 1 === n ? 0 : i + 1;
+  return buf[i] + (buf[j] - buf[i]) * f;
+}
+// RBJ biquads. Lowpass / highpass Q is in dB as in Web Audio's BiquadFilterNode; allpass / bandpass Q is linear.
+function coef(type, f, q, sr) {
+  f = clamp(f, 10, sr * 0.45);
+  var w0 = TAU * f / sr, cs = Math.cos(w0), sn = Math.sin(w0), Q = (type === 'lowpass' || type === 'highpass') ? Math.pow(10, q / 20) : q, al = sn / (2 * Q), b0, b1, b2;
+  if (type === 'lowpass') { b0 = (1 - cs) / 2; b1 = 1 - cs; b2 = b0; }
+  else if (type === 'highpass') { b0 = (1 + cs) / 2; b1 = -(1 + cs); b2 = b0; }
+  else if (type === 'bandpass') { b0 = al; b1 = 0; b2 = -al; }
+  else { b0 = 1 - al; b1 = -2 * cs; b2 = 1 + al; }
+  var a0 = 1 + al;
+  return { b0: b0 / a0, b1: b1 / a0, b2: b2 / a0, a1: -2 * cs / a0, a2: (1 - al) / a0 };
+}
+function biq(s, c, x) { var y = c.b0 * x + c.b1 * s.x1 + c.b2 * s.x2 - c.a1 * s.y1 - c.a2 * s.y2; s.x2 = s.x1; s.x1 = x; s.y2 = s.y1; s.y1 = y; return y; }
+function filterSpec(amt) {
+  if (amt < -0.001) return ['lowpass', 20000 * Math.pow(20 / 20000, Math.min(1, -amt))];
+  if (amt > 0.001) return ['highpass', 20 * Math.pow(20000 / 20, Math.min(1, amt))];
+  return ['allpass', 1000];
+}
+var E = {
+  SN: 16384, ready: false,
+  init: function (sr) {
+    this.sr = sr;
+    this.ph = new Float64Array(6); this.rot = [0, 0];
+    this.fr = new Float64Array(6); this.wv = new Int8Array(6); this.mix = new Float64Array(6); this.fmd = new Float64Array(6);
+    this.fs = [{ x1: 0, x2: 0, y1: 0, y2: 0 }, { x1: 0, x2: 0, y1: 0, y2: 0 }]; this.bs = [{ x1: 0, x2: 0, y1: 0, y2: 0 }, { x1: 0, x2: 0, y1: 0, y2: 0 }];
+    this.cb = [new Float32Array(Math.ceil(sr * 0.06)), new Float32Array(Math.ceil(sr * 0.06))]; this.cw = 0; this.cph = new Float64Array(7);
+    this.sL = new Float32Array(this.SN); this.sR = new Float32Array(this.SN); this.sw = 0;
+    this.ready = true;
+  },
+  process: function (inL, inR, outL, outR, n) {
+    var st = state, sr = this.sr, g, k, c, i;
+    var mt = st.masterTime * st.masterTimeFast, md = st.masterDetune, tone = st.src === 'tone';
+    // Per block: the chain fundamental -> Chord -> Chord 2, as in the original's updateChordAudio.
+    for (g = 0; g < 2; g++) {
+      var b = 3 * g, m = st.osc[b], prev = m.freq * mt;
+      this.fr[b] = prev; this.wv[b] = m.wave; this.mix[b] = m.wave ? m.gain : 0; this.fmd[b] = 0;
+      for (k = 1; k < 3; k++) {
+        var o = st.osc[b + k], f = prev * (o.mul / o.div) * Math.pow(2, o.det * md / 12);
+        this.fr[b + k] = f; this.wv[b + k] = o.wave;
+        this.mix[b + k] = o.wave && !o.fm ? o.gain : 0;
+        this.fmd[b + k] = o.wave && o.fm ? o.gain * f * 5 : 0;          // Hz of deviation (MOD_INDEX_MAX 5)
+        prev = f;
+      }
+    }
+    var offX = st.osc[0].phase, offY = st.osc[3].phase, spX = st.osc[0].speed * mt, spY = st.osc[3].speed * mt;
+    // Effects coefficients.
+    var fx = st.fx, by = fx.byp, fspec = filterSpec(fx.filterAmount);
+    var fc = coef(fspec[0], fspec[1], 0.9, sr), bc = coef('bandpass', fx.bandpassFreq, 5, sr);
+    var sat = by.saturation ? 0 : fx.saturation, drive = 1 + (sat / 100) * 14, smix = sat / 100;
+    var nv = by.chorus ? 0 : Math.round(fx.chorusVoices), vg = nv ? 1 / Math.sqrt(nv) : 0, cn = this.cb[0].length;
+    var SN1 = this.SN - 1;
+    for (k = 0; k < n; k++) {
+      var L, R;
+      if (tone) {
+        if (!st.hold) { this.rot[0] = (this.rot[0] + spX / sr) % 360; this.rot[1] = (this.rot[1] + spY / sr) % 360; }
+        var bus0 = 0, bus1 = 0;
+        for (g = 0; g < 2; g++) {
+          var i0 = 3 * g, i1 = i0 + 1, i2 = i0 + 2, y2 = 0, y1 = 0, y0 = 0, dt, t;
+          if (this.wv[i2]) { dt = this.fr[i2] / sr; t = this.ph[i2]; y2 = wave(this.wv[i2], t - Math.floor(t), Math.abs(dt)); this.ph[i2] = t + dt - Math.floor(t + dt); }
+          if (this.wv[i1]) { dt = (this.fr[i1] + y2 * this.fmd[i2]) / sr; t = this.ph[i1]; y1 = wave(this.wv[i1], t - Math.floor(t), Math.abs(dt)); this.ph[i1] = t + dt - Math.floor(t + dt); }
+          dt = (this.fr[i0] + y1 * this.fmd[i1]) / sr; t = this.ph[i0];
+          if (this.wv[i0]) { var tt = t - (g ? offY + this.rot[1] : offX + this.rot[0]) / 360; y0 = wave(this.wv[i0], tt - Math.floor(tt), Math.abs(dt)); }
+          this.ph[i0] = t + dt - Math.floor(t + dt);
+          var sum = y0 * this.mix[i0] + y1 * this.mix[i1] + y2 * this.mix[i2];
+          if (g === 0) bus0 = sum; else bus1 = sum;
+        }
+        // Effects chain (the tone always passes through it; bypassed stages are skipped).
+        L = bus0; R = bus1;
+        if (!by.filter) { L = biq(this.fs[0], fc, L); R = biq(this.fs[1], fc, R); }
+        if (!by.bandpass) { L = biq(this.bs[0], bc, L); R = biq(this.bs[1], bc, R); }
+        if (sat > 0) { L = L * (1 - smix) + Math.tanh(2.5 * clamp(L * drive, -1, 1)) * smix; R = R * (1 - smix) + Math.tanh(2.5 * clamp(R * drive, -1, 1)) * smix; }
+        this.cb[0][this.cw] = L; this.cb[1][this.cw] = R;
+        if (nv) {
+          var wl = 0, wr = 0;
+          for (c = 0; c < nv; c++) { var dl = (0.02 + 0.003 * Math.sin(TAU * this.cph[c])) * sr; wl += rd(this.cb[0], this.cw - dl); wr += rd(this.cb[1], this.cw - dl); }
+          L += wl * vg * 0.6; R += wr * vg * 0.6;
+        }
+        for (c = 0; c < 7; c++) { this.cph[c] += (0.2 + c * 0.09) / sr; if (this.cph[c] >= 1) this.cph[c] -= 1; }
+        if (++this.cw >= cn) this.cw = 0;
+        if (!(L === L) || !(R === R)) { L = 0; R = 0; this.init(sr); }
+      } else { L = inL[k]; R = inR[k]; }
+      this.sL[this.sw] = L; this.sR[this.sw] = R; this.sw = (this.sw + 1) & SN1;
+      outL[k] = L; outR[k] = R;
+    }
+  }
+};
 
-      <div id="displayParams" class="section"></div>
-    </div>
-    </div>
+// ---------------------------------------------------------------- audio graph
+// Tone: engine -> sink (0.2, 0 when muted) -> fatigue guard (LP 5 kHz, low shelf -12 dB at 2 kHz, limiter) -> speakers.
+// Mic and Line are analysed but not played (silent, as in the original); a File plays directly.
+var A = { ctx: null, node: null, sink: null, fileOut: null, rec: null, recorder: null, live: null, liveSrc: null, file: null, running: false };
+function ensureAudio() {
+  if (A.ctx) return;
+  var AC = window.AudioContext || window.webkitAudioContext;
+  A.ctx = new AC();
+  E.init(A.ctx.sampleRate);
+  A.node = A.ctx.createScriptProcessor(2048, 2, 2);
+  A.node.onaudioprocess = function (e) {
+    var ib = e.inputBuffer, ob = e.outputBuffer;
+    E.process(ib.getChannelData(0), ib.getChannelData(ib.numberOfChannels > 1 ? 1 : 0), ob.getChannelData(0), ob.getChannelData(1), ob.length);
+  };
+  A.sink = A.ctx.createGain();
+  var lpf = A.ctx.createBiquadFilter(); lpf.type = 'lowpass'; lpf.frequency.value = 5000;
+  var shelf = A.ctx.createBiquadFilter(); shelf.type = 'lowshelf'; shelf.frequency.value = 2000; shelf.gain.value = -12; shelf.Q.value = 0.5;
+  var lim = A.ctx.createDynamicsCompressor(); lim.threshold.value = -24; lim.ratio.value = 20; lim.knee.value = 0;
+  A.fileOut = A.ctx.createGain();
+  A.rec = A.ctx.createMediaStreamDestination();
+  A.node.connect(A.sink); A.sink.connect(lpf); lpf.connect(shelf); shelf.connect(lim); lim.connect(A.ctx.destination); lim.connect(A.rec);
+  A.fileOut.connect(A.ctx.destination); A.fileOut.connect(A.rec);
+  setGain();
+}
+function setGain() {
+  if (!A.ctx) return;
+  var t = A.ctx.currentTime;
+  A.sink.gain.setTargetAtTime(!state.mute && state.src === 'tone' ? 0.2 : 0, t, 0.02);
+  A.fileOut.gain.setTargetAtTime(state.mute ? 0 : 1, t, 0.02);
+}
+function play() { ensureAudio(); A.ctx.resume(); A.running = true; refreshTransport(); }
+function stop() { if (A.recorder) toggleRec(); if (A.ctx) A.ctx.suspend(); A.running = false; refreshTransport(); }
+function toggleRec() {
+  if (A.recorder) { A.recorder.stop(); return; }
+  if (!window.MediaRecorder) return;
+  play();
+  var chunks = [], r = new MediaRecorder(A.rec.stream);
+  r.ondataavailable = function (e) { if (e.data.size) chunks.push(e.data); };
+  r.onstop = function () {
+    A.recorder = null; refreshTransport();
+    var a = document.createElement('a'), d = new Date();
+    a.href = URL.createObjectURL(new Blob(chunks, { type: r.mimeType || 'audio/webm' }));
+    a.download = 'L9-Loop-' + d.toISOString().slice(0, 19).replace(/[:T]/g, '-') + '.webm';
+    document.body.appendChild(a); a.click(); a.remove();
+  };
+  r.start(); A.recorder = r; refreshTransport();
+}
+function dropSource() {
+  if (A.liveSrc) { A.liveSrc.disconnect(); A.liveSrc = null; }
+  if (A.live) { A.live.getTracks().forEach(function (t) { t.stop(); }); A.live = null; }
+  if (A.file) { try { A.file.stop(); } catch (e) { } A.file.disconnect(); A.file = null; }
+}
+function setSource(kind) {
+  if (kind === 'tone') { dropSource(); state.src = 'tone'; ui.src.select(0); setGain(); return; }
+  if (kind === 'file') { document.getElementById('fileIn').click(); return; }
+  play();
+  var get = kind === 'mic'
+    ? function () { return navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 2 } }); }
+    : function () { return navigator.mediaDevices.getDisplayMedia({ video: true, audio: true, systemAudio: 'include', selfBrowserSurface: 'exclude' }); };
+  var idx = kind === 'mic' ? 1 : 2;
+  if (!navigator.mediaDevices) { flash(ui.src.keys[idx]); return; }
+  get().then(function (s) {
+    if (!s.getAudioTracks().length) { s.getTracks().forEach(function (t) { t.stop(); }); flash(ui.src.keys[idx]); return; }
+    dropSource(); A.live = s; A.liveSrc = A.ctx.createMediaStreamSource(s); A.liveSrc.connect(A.node);
+    state.src = kind; ui.src.select(idx); setGain();
+  }).catch(function () { flash(ui.src.keys[idx]); });
+}
+document.getElementById('fileIn').addEventListener('change', function (e) {
+  var f = e.target.files[0]; e.target.value = '';
+  if (!f) return;
+  play();
+  f.arrayBuffer().then(function (buf) { return A.ctx.decodeAudioData(buf); }).then(function (b) {
+    dropSource();
+    var s = A.ctx.createBufferSource(); s.buffer = b; s.loop = true;
+    s.connect(A.node); s.connect(A.fileOut); s.start();
+    A.file = s; state.src = 'file'; ui.src.select(3); setGain();
+  }).catch(function () { flash(ui.src.keys[3]); });
+});
 
-    <!-- Status strip. Says in words what the red transport buttons say
-         in colour, so a held or muted signal is never carried by hue
-         alone. Updated from updateFooter() in script.js. -->
-    <div class="panel-footer" role="status" aria-live="polite">
-      <span id="footSource">Test tone</span>
-      <span class="foot-sep" aria-hidden="true">/</span>
-      <span id="footMode">XY</span>
-      <span class="foot-sep" aria-hidden="true">/</span>
-      <span id="footFreq" class="foot-num">220 : 330 Hz</span>
-      <span class="foot-sep" aria-hidden="true">/</span>
-      <span class="foot-num">32768 pt</span>
-      <span class="foot-spacer"></span>
-      <span id="footState" class="foot-state" hidden></span>
-      <span id="footBypass" class="foot-num">4 of 4 bypassed</span>
-    </div>
-  </div>
-</div>
-<script src="script.js"></script>
+// ---------------------------------------------------------------- UI kit (Layout Lab hardware styles, interactive)
+var dragging = false;
+function stageScale() { return parseFloat(stage.dataset.scale || '1'); }
+function showTip(target, text) {
+  var r = target.getBoundingClientRect(), s = stage.getBoundingClientRect(), k = stageScale();
+  tip.textContent = text;
+  tip.style.display = 'block';
+  tip.style.left = ((r.left + r.width / 2 - s.left) / k) + 'px';
+  tip.style.top = ((r.top - s.top) / k - 24) + 'px';
+}
+function hideTip() { tip.style.display = 'none'; }
+function dragValue(target, ctl, range) {
+  target.addEventListener('pointerdown', function (e) {
+    if (e.button !== 0) return;
+    e.preventDefault(); target.setPointerCapture(e.pointerId); dragging = true;
+    var raw = ctl.v, ly = e.clientY;
+    var move = function (ev) { raw = clamp(raw + (ly - ev.clientY) / (ev.shiftKey ? range * 10 : range)); ly = ev.clientY; ctl.set(raw); showTip(target, ctl.text()); };
+    var up = function () { dragging = false; target.removeEventListener('pointermove', move); target.removeEventListener('pointerup', up); target.removeEventListener('pointercancel', up); hideTip(); };
+    target.addEventListener('pointermove', move); target.addEventListener('pointerup', up); target.addEventListener('pointercancel', up);
+    showTip(target, ctl.text());
+  });
+  target.addEventListener('pointerenter', function () { if (!dragging) showTip(target, ctl.text()); });
+  target.addEventListener('pointerleave', function () { if (!dragging) hideTip(); });
+  target.addEventListener('dblclick', function () { if (ctl.def != null) { ctl.set(ctl.def); showTip(target, ctl.text()); } });
+  target.addEventListener('wheel', function (e) {
+    e.preventDefault();
+    var st = ctl.steps ? 1 / (ctl.steps - 1) : (e.shiftKey ? 0.002 : 0.01);
+    ctl.set(clamp(ctl.v - (e.deltaY > 0 ? st : -st))); showTip(target, ctl.text());
+  }, { passive: false });
+}
+function sec(x, y, w, h, title, o) {
+  o = o || {};
+  var b = el('div', at(x, y, w, h) + ';box-sizing:border-box;border:1px solid ' + (o.line || P.inkMute) + ';border-radius:3px;pointer-events:none');
+  el('span', 'position:absolute;left:12px;top:-9px;padding:2px 8px;background:' + (o.tab || P.ink) + ';color:#19181a;font-size:10px;font-weight:800;letter-spacing:0.16em;text-transform:uppercase;line-height:14px;white-space:nowrap', b, title);
+  return b;
+}
+var SCALE = 'position:absolute;inset:0;border-radius:50%;background:repeating-conic-gradient(from -136deg,' + P.inkDim + ' 0deg 2deg,transparent 2deg 27deg);' +
+  '-webkit-mask:radial-gradient(closest-side,transparent calc(100% - 6px),#000 calc(100% - 5px)),conic-gradient(from -137deg,#000 0deg 274deg,transparent 274deg);-webkit-mask-composite:source-in;' +
+  'mask:radial-gradient(closest-side,transparent calc(100% - 6px),#000 calc(100% - 5px)),conic-gradient(from -137deg,#000 0deg 274deg,transparent 274deg);mask-composite:intersect;pointer-events:none';
+// MS-20 knob centred on (x, y) bound to obj()[key] through parameter definition d. o.after runs after each change.
+function knob(x, y, size, label, obj, key, d, o) {
+  o = o || {};
+  var R = size / 2 + 10, S = 2 * R;
+  var wrap = el('div', at(x - R - 16, y - R, S + 32) + ';display:flex;flex-direction:column;align-items:center;pointer-events:none');
+  var ring = el('div', 'position:relative;flex:none;width:' + S + 'px;height:' + S + 'px;cursor:ns-resize;touch-action:none;pointer-events:auto', wrap);
+  ring.setAttribute('role', 'slider'); ring.tabIndex = 0;
+  el('div', SCALE, ring);
+  var skirt = el('div', 'position:absolute;left:10px;top:10px;width:' + size + 'px;height:' + size + 'px;border-radius:50%;background:repeating-conic-gradient(#1f1e21 0deg 4deg,#121113 4deg 8deg);box-shadow:0 0 0 1px #050505,0 6px 10px rgba(0,0,0,0.6);pointer-events:none', ring);
+  el('div', 'position:absolute;inset:15%;border-radius:50%;background:radial-gradient(circle at 45% 35%,#3b393e 0%,#201f22 60%,#161517 100%);box-shadow:inset 0 1px 0 rgba(255,255,255,0.10)', skirt);
+  var ptr = el('div', 'position:absolute;inset:0', skirt);
+  el('div', 'position:absolute;left:50%;top:4%;width:2px;height:42%;margin-left:-1px;border-radius:1px;background:' + P.ink, ptr);
+  var lab = el('span', 'margin-top:5px;font-size:' + (o.fs || 8.5) + 'px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:' + P.inkDim + ';white-space:nowrap', wrap, label);
+  var k = {
+    v: 0, lab: lab, steps: steps(d), def: toV(d, d.def),
+    text: function () { return lab.textContent + '  ' + d.f(obj()[key]); },
+    show: function (v) { k.v = v; ptr.style.transform = 'rotate(' + (-135 + v * 270) + 'deg)'; ring.setAttribute('aria-valuetext', d.f(obj()[key])); },
+    set: function (v) { var x = fromV(d, v); obj()[key] = x; k.show(k.steps ? toV(d, x) : clamp(v)); if (o.after) o.after(x); },
+    sync: function () { k.show(toV(d, obj()[key])); ring.setAttribute('aria-label', lab.textContent); }
+  };
+  k.sync();
+  dragValue(ring, k, 220);
+  ring.addEventListener('keydown', function (e) {
+    var st = k.steps ? 1 / (k.steps - 1) : 0.01;
+    if (e.key === 'ArrowUp' || e.key === 'ArrowRight') { k.set(clamp(k.v + st)); e.preventDefault(); }
+    if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') { k.set(clamp(k.v - st)); e.preventDefault(); }
+  });
+  ui.syncers.push(k.sync);
+  return k;
+}
+var LED = { on: P.accent, sel: P.select, rec: P.rec, off: P.off, byp: '#4a86e8' };
+// Rubber key. led: on / sel / rec / off / byp / null. o: glyph, below, fs, onClick, aria, ledW.
+function key(x, y, w, h, label, led, o) {
+  o = o || {};
+  var wrap = el('div', at(x, y, w) + ';display:flex;flex-direction:column;align-items:center');
+  var b = el('button', 'position:relative;flex:none;box-sizing:border-box;width:' + w + 'px;height:' + h + 'px;padding:' + (led != null ? '6px' : '0') + ' 0 0;border:none;border-radius:5px;' +
+    'background:linear-gradient(to bottom,#49474d,#363439 55%,#2d2c30);box-shadow:0 2px 0 #0f0e10,0 4px 7px rgba(0,0,0,0.5),inset 0 1px 0 rgba(255,255,255,0.09);' +
+    'display:flex;align-items:center;justify-content:center;font-family:inherit;font-size:' + (o.fs || 8.5) + 'px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:' + P.ink + ';cursor:pointer;transition:transform 40ms', wrap);
+  b.type = 'button'; b.setAttribute('aria-label', o.aria || label || o.below || '');
+  var lw = o.ledW || 10;
+  var ledEl = el('span', 'position:absolute;left:50%;top:5px;width:' + lw + 'px;height:3px;margin-left:-' + (lw / 2) + 'px;border-radius:2px', b);
+  var txt = el('span', '', b, o.glyph || label || '');
+  if (o.below) el('span', 'margin-top:6px;font-size:8.5px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:' + P.inkDim + ';white-space:nowrap', wrap, o.below);
+  var k = {
+    b: b, wrap: wrap, txt: txt, state: null,
+    set: function (s) {
+      k.state = s;
+      if (s == null) { ledEl.style.display = 'none'; return; }
+      ledEl.style.display = ''; ledEl.style.background = LED[s]; ledEl.style.boxShadow = s === 'off' ? 'none' : '0 0 7px ' + LED[s];
+    }
+  };
+  k.set(led);
+  b.addEventListener('pointerdown', function () { b.style.transform = 'translateY(1px)'; });
+  ['pointerup', 'pointerleave'].forEach(function (ev) { b.addEventListener(ev, function () { b.style.transform = ''; }); });
+  if (o.onClick) b.addEventListener('click', o.onClick);
+  return k;
+}
+function radio(pos, w, h, names, onPick, fs) {
+  var r = { keys: [], select: function (i) { r.keys.forEach(function (k, j) { k.set(j === i ? 'sel' : 'off'); }); } };
+  names.forEach(function (n, i) { r.keys.push(key(pos[i][0], pos[i][1], w, h, n, 'off', { fs: fs || 9, onClick: function () { onPick(i); } })); });
+  return r;
+}
+function glass(x, y, w, h, aria) {
+  var g = el('div', at(x, y, w, h) + ';border-radius:4px;background:#050406;box-shadow:inset 0 2px 5px rgba(0,0,0,0.9),0 1px 0 rgba(255,255,255,0.06);overflow:hidden');
+  g.setAttribute('aria-label', aria);
+  var c = el('canvas', 'position:absolute;inset:0;width:100%;height:100%', g);
+  c.width = Math.round(w * 2); c.height = Math.round(h * 2);
+  return { g: g, c: c, x: c.getContext('2d'), w: c.width, h: c.height };
+}
+// Draw fn(t) -> -1..1 across a small screen.
+function curve(gl, fn, o) {
+  o = o || {};
+  var x = gl.x, w = gl.w, h = gl.h, i, v, yy;
+  x.clearRect(0, 0, w, h);
+  x.strokeStyle = 'rgba(207,171,246,0.14)'; x.setLineDash([4, 8]); x.lineWidth = 1;
+  x.beginPath(); x.moveTo(0, h / 2); x.lineTo(w, h / 2); x.stroke(); x.setLineDash([]);
+  var path = function () { x.beginPath(); for (i = 0; i <= 240; i++) { v = clamp(fn(i / 240), -1, 1); yy = h / 2 - v * (h / 2 - 4); if (i) x.lineTo(i / 240 * w, yy); else x.moveTo(0, yy); } };
+  if (o.fill) { path(); x.lineTo(w, h); x.lineTo(0, h); x.closePath(); x.fillStyle = 'rgba(175,120,237,0.16)'; x.fill(); }
+  path();
+  x.strokeStyle = o.dim ? 'rgba(143,141,146,0.45)' : (o.col || P.accent); x.lineWidth = 2.4;
+  x.shadowColor = o.col || 'rgba(175,120,237,0.8)'; x.shadowBlur = o.dim ? 0 : 6;
+  x.stroke(); x.shadowBlur = 0;
+}
+function flash(k) { var s = k.state; k.set('rec'); setTimeout(function () { k.set(s); }, 300); }
+
+// ---------------------------------------------------------------- geometry
+// The panel fills the window. Landscape (L9) is 1440 wide, portrait (L9v) 900 wide; the height follows the window's shape.
+var RING_OSC = [1, 2, 4, 5];   // the chord layer each FM ring belongs to: it modulates the oscillator to its left
+function geometry(lk, H) {
+  var G = { lk: lk, H: H };
+  if (lk === 'land') {
+    var oscH = 112, oscY = H - 24 - oscH, top = 52, topB = oscY - 52, T = topB - top;
+    var s = Math.min(T, 628), ax = 32 + s + 24, aw = 140, colX = ax + aw + 24, cw = 1408 - colX, h3 = Math.floor((T - 32) / 3);
+    var xs = [32, 260, 488, 764, 992, 1220], w = 188;
+    G.W = 1440; G.scope = [32, topB - s, s]; G.ana = [ax, top, aw, T];
+    G.mute = [colX, top, cw, h3]; G.sdm = [colX, top + h3 + 16, cw, h3]; G.fx = [colX, top + 2 * (h3 + 16), cw, T - 2 * (h3 + 16)];
+    G.osc = xs.map(function (x) { return [x, oscY, w, oscH]; }); G.oscRow = true;
+    G.rings = [[240, oscY + 26], [468, oscY + 26], [972, oscY + 26], [1200, oscY + 26]]; G.ringGap = 20;
+    var fx = G.fx, yR = fx[1] + Math.round(fx[3] * 0.42), yL = fx[1] + Math.round(fx[3] * 0.62), lL = oscY - 30, lR = oscY - 16, sR = 32 + s;
+    G.drops = xs.map(function (x, i) { return 'M' + (x + w - 34) + ' ' + oscY + 'V' + (i < 3 ? lL : lR); });
+    G.bus = [
+      'M' + (xs[0] + w - 34) + ' ' + lL + 'H1414V' + yL + 'H1415M' + colX + ' ' + yL + 'H' + (ax + aw + 7) + 'M' + ax + ' ' + yL + 'H' + (sR + 7),
+      'M' + (xs[3] + w - 34) + ' ' + lR + 'H1426V' + yR + 'H1415M' + colX + ' ' + yR + 'H' + (ax + aw + 7) + 'M' + ax + ' ' + yR + 'H' + (sR + 7)];
+    var lh = function (xx, yy) { return 'M' + xx + ' ' + yy + 'l6 -4v8z'; };
+    G.heads = [lh(1409, yL) + lh(ax + aw + 1, yL) + lh(sR + 1, yL), lh(1409, yR) + lh(ax + aw + 1, yR) + lh(sR + 1, yR)];
+    G.labels = [[40, lL - 4, 'X · L', P.X], [872, lR - 4, 'Y · R', P.Y]];
+  } else {
+    var e = Math.max(0, (H - 1200) / 4), yS = 576 + e, laneL = yS + 164 + 24 + e, r1 = laneL + 24, laneR = r1 + 168 + 20 + e, r2 = laneR + 24;
+    var avail = H - 24 - 576 - 24, mh = Math.round(avail * 0.45), fy = 576 + mh + 24, px = [32, 210, 388];
+    G.W = 900; G.scope = [32, 52, 500]; G.ana = [572, 52, 248, 500];
+    G.sdm = [32, yS, 500, 164]; G.mute = [572, 576, 248, mh]; G.fx = [572, fy, 248, H - 24 - fy];
+    G.osc = [[32, r1], [210, r1], [388, r1], [32, r2], [210, r2], [388, r2]].map(function (p) { return [p[0], p[1], 144, 168]; }); G.oscRow = false;
+    G.rings = [[193, r1 + 26], [371, r1 + 26], [193, r2 + 26], [371, r2 + 26]]; G.ringGap = 17;
+    var mb = 576 + mh, ab = 552, fb = H - 24;
+    G.drops = [0, 1, 2, 3, 4, 5].map(function (i) { var x = px[i % 3] + 90; return i < 3 ? 'M' + x + ' ' + r1 + 'V' + laneL : 'M' + x + ' ' + r2 + 'V' + laneR; });
+    var up = function (xx, yy) { return 'M' + xx + ' ' + yy + 'l-4 6h8z'; }, left = function (xx, yy) { return 'M' + xx + ' ' + yy + 'l6 -4v8z'; };
+    G.bus = [
+      'M122 ' + laneL + 'H560V' + (H - 16) + 'H784V' + (fb + 7) + 'M784 ' + fy + 'V' + (mb + 7) + 'M784 576V' + (ab + 7) + 'M572 470H539',
+      'M122 ' + laneR + 'H548V' + (H - 8) + 'H800V' + (fb + 7) + 'M800 ' + fy + 'V' + (mb + 7) + 'M800 576V' + (ab + 7) + 'M572 490H539'];
+    G.heads = [up(784, fb + 1) + up(784, mb + 1) + up(784, ab + 1) + left(533, 470), up(800, fb + 1) + up(800, mb + 1) + up(800, ab + 1) + left(533, 490)];
+    G.labels = [[40, laneL - 4, 'X · L', P.X], [40, laneR - 4, 'Y · R', P.Y]];
+  }
+  return G;
+}
+
+// ---------------------------------------------------------------- build the panel
+var ui = { syncers: [] }, GEO = null, scope = null, sx = null, ana = null, pdisp = null, presetLines = 3, routeSvg = null;
+function build(lk, H) {
+  var G = geometry(lk, H);
+  GEO = G; ui = { syncers: [] };
+  hideTip(); panel.innerHTML = '';
+  stage.style.width = G.W + 'px'; stage.style.height = G.H + 'px';
+  tx(32, 18, 'Visualizer', 'font-size:15px;font-weight:800;letter-spacing:0.32em;text-transform:uppercase;color:' + P.ink + ';line-height:1');
+  el('span', 'position:absolute;right:32px;top:20px;font-size:11px;font-weight:700;letter-spacing:0.2em;text-transform:uppercase;color:' + P.inkMute + ';line-height:1', panel, lk === 'land' ? 'L9 · Loop' : 'L9v · Loop');
+
+  // Oscilloscope: bezel and canvas, no text inside.
+  var s = G.scope;
+  var bez = el('div', at(s[0], s[1], s[2], s[2]) + ';box-sizing:border-box;padding:12px;border-radius:8px;background:#0b0b0c;box-shadow:inset 0 2px 6px rgba(0,0,0,0.9),0 1px 0 rgba(255,255,255,0.06)');
+  bez.setAttribute('aria-label', 'Oscilloscope');
+  var scrIn = el('div', 'position:relative;width:100%;height:100%;border-radius:3px;background:#050406;overflow:hidden', bez);
+  scope = el('canvas', 'position:absolute;inset:0;width:100%;height:100%', scrIn);
+  scope.width = scope.height = (s[2] - 24) * 2;
+  sx = scope.getContext('2d'); sx.fillStyle = '#050406'; sx.fillRect(0, 0, scope.width, scope.height);
+
+  // Stereo spectrum analyser: L to the left of the centre line, R to the right, frequency rising up the strip.
+  var a = G.ana;
+  sec(a[0], a[1], a[2], a[3], 'Spectrum');
+  ana = glass(a[0] + 12, a[1] + 20, a[2] - 24, a[3] - 36, 'Stereo spectrum analyser');
+  ana.lv = [new Float32Array(400), new Float32Array(400)]; ana.pk = [new Float32Array(400), new Float32Array(400)];
+
+  buildOscillators(G);
+  buildMute(G.mute);
+  buildSDM(G.sdm);
+  buildFX(G.fx);
+
+  // Routing layer (redrawn when FM or waves change).
+  var NS = 'http://www.w3.org/2000/svg';
+  routeSvg = document.createElementNS(NS, 'svg');
+  routeSvg.setAttribute('width', String(G.W)); routeSvg.setAttribute('height', String(G.H)); routeSvg.setAttribute('aria-hidden', 'true');
+  routeSvg.style.cssText = 'position:absolute;left:0;top:0;overflow:visible;pointer-events:none';
+  panel.appendChild(routeSvg);
+  G.labels.forEach(function (lb) { tx(lb[0], lb[1], lb[2], PRINT(8.5, lb[3])); });
+  syncUI();
+}
+
+function buildOscillators(G) {
+  ui.osc = [];
+  G.osc.forEach(function (p, i) {
+    var x = p[0], y = p[1], w = p[2], main = i % 3 === 0, col = i < 3 ? P.X : P.Y;
+    var O = function () { return state.osc[i]; };
+    sec(x, y, w, p[3], (main ? 'Osc ' + (i + 1) + ' · ' + (i < 3 ? 'X' : 'Y') + ' Main' : 'Osc ' + (i + 1)), { line: col, tab: col });
+    var g = glass(x + 10, y + 14, w - 20, 24, 'Oscillator ' + (i + 1));
+    g.g.style.cursor = 'pointer';
+    g.g.title = 'Click: Off, Sine, Triangle, Sawtooth, Square';
+    g.g.addEventListener('click', function () { var o = state.osc[i]; o.wave = (o.wave + 1) % 5; drawWave(i); drawRoutes(); });
+    var pos = G.oscRow ? [0, 1, 2, 3].map(function (k) { return [x + 32 + k * (w - 64) / 3, y + 72]; })
+                       : [[x + 44, y + 70], [x + 100, y + 70], [x + 44, y + 128], [x + 100, y + 128]];
+    var ks = main
+      ? [knob(pos[0][0], pos[0][1], 20, 'Gain', O, 'gain', PD.mgain), knob(pos[1][0], pos[1][1], 20, 'Pitch', O, 'freq', PD.freq),
+         knob(pos[2][0], pos[2][1], 20, 'Phase', O, 'phase', PD.phase), knob(pos[3][0], pos[3][1], 20, 'Spin', O, 'speed', PD.speed)]
+      : [knob(pos[0][0], pos[0][1], 20, 'Gain', O, 'gain', PD.cgain), knob(pos[1][0], pos[1][1], 20, 'Detune', O, 'det', PD.det),
+         knob(pos[2][0], pos[2][1], 20, 'Mult', O, 'mul', PD.mul), knob(pos[3][0], pos[3][1], 20, 'Div', O, 'div', PD.div)];
+    ui.osc.push({ g: g, k: ks });
+  });
+  // FM rings: lit = the oscillator on the right frequency-modulates the one on its left and leaves the mix.
+  ui.rings = [];
+  G.rings.forEach(function (rp, li) {
+    var cx = rp[0], cy = rp[1], oi = RING_OSC[li];
+    var hit = el('button', at(cx - 14, cy - 14, 28, 28) + ';padding:0;border:none;background:none;cursor:pointer;display:flex;align-items:center;justify-content:center');
+    hit.type = 'button';
+    var ring = el('span', 'width:16px;height:16px;box-sizing:border-box;border-radius:50%;border:2px solid ' + P.accent, hit);
+    cl(cx, cy + 15, 30, 'FM', PRINT(8));
+    var set = function () {
+      var on = state.osc[oi].fm;
+      ring.style.borderColor = on ? P.accent : '#5a4a6c';
+      ring.style.background = on ? 'radial-gradient(circle,' + P.accent + ' 0 3px,transparent 3.5px)' : 'none';
+      ring.style.boxShadow = on ? '0 0 7px rgba(175,120,237,0.8)' : 'none';
+      hit.setAttribute('aria-label', 'FM: oscillator ' + (oi + 1) + ' modulates oscillator ' + oi + (on ? ' (on)' : ' (off)'));
+      hit.setAttribute('aria-pressed', on ? 'true' : 'false');
+      ui.osc[oi].k[0].lab.textContent = on ? 'Depth' : 'Gain';
+    };
+    hit.addEventListener('click', function () { state.osc[oi].fm = !state.osc[oi].fm; set(); drawRoutes(); });
+    ui.rings.push(set);
+  });
+}
+
+function buildMute(m) {
+  var x = m[0], y = m[1], w = m[2], h = m[3], wide = w >= 400, kw = wide ? 56 : 68, st = wide ? 64 : 76;
+  sec(x, y, w, h, 'Mute · Freeze · Presets');
+  ui.playK = key(x + 16, y + 18, kw, 28, '', 'off', { glyph: '▶', fs: 13, below: 'Play', aria: 'Play', onClick: play });
+  ui.stopK = key(x + 16 + st, y + 18, kw, 28, '', 'off', { glyph: '■', fs: 12, below: 'Stop', aria: 'Stop', onClick: stop });
+  ui.recK = key(x + 16 + 2 * st, y + 18, kw, 28, '', 'off', { glyph: '●', fs: 12, below: 'Rec', aria: 'Record', onClick: toggleRec });
+  ui.mute = key(x + 16, y + 80, kw, 28, 'Mute', 'off', { below: 'Audio', onClick: function () { state.mute = !state.mute; ui.mute.set(state.mute ? 'rec' : 'off'); setGain(); } });
+  ui.freeze = key(x + 16 + st, y + 80, kw, 28, 'Freeze', 'off', { below: 'Display', onClick: function () { state.freeze = !state.freeze; ui.freeze.set(state.freeze ? 'on' : 'off'); } });
+  ui.hold = key(x + 16 + 2 * st, y + 80, kw, 28, 'Hold', 'off', { below: 'Spin', onClick: function () { state.hold = !state.hold; ui.hold.set(state.hold ? 'on' : 'off'); } });
+  var lx = wide ? x + 232 : x + 16, ly = wide ? y + 18 : y + 140, lw = wide ? w - 248 : w - 32, lh = wide ? h - 62 : h - 184;
+  presetLines = Math.max(1, Math.floor((lh - 10) / 20));
+  var band = 5 + Math.floor(presetLines / 2) * 20;
+  pdisp = el('div', at(lx, ly, lw, 10 + presetLines * 20) + ';box-sizing:border-box;padding:5px 10px 0;border-radius:4px;background:linear-gradient(to bottom,transparent ' + band + 'px,rgba(175,120,237,0.22) ' + band + 'px ' + (band + 20) + 'px,transparent ' + (band + 20) + 'px),#050406;' +
+    'box-shadow:inset 0 2px 5px rgba(0,0,0,0.9),0 1px 0 rgba(255,255,255,0.06);font-size:11px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;line-height:20px;color:' + P.accent + ';text-shadow:0 0 6px rgba(175,120,237,0.8);white-space:pre;overflow:hidden');
+  pdisp.setAttribute('aria-live', 'polite');
+  pdisp.addEventListener('wheel', function (e) { e.preventDefault(); presetSel = clamp(presetSel + (e.deltaY > 0 ? 1 : -1), 0, PRESETS.length - 1); drawPresets(); }, { passive: false });
+  pdisp.addEventListener('dblclick', loadSel);
+  var nw = Math.floor((lw - 24) / 5), ny = y + h - 34;
+  var nav = [['▲', 'Previous preset', function () { presetSel = Math.max(0, presetSel - 1); drawPresets(); }],
+             ['▼', 'Next preset', function () { presetSel = Math.min(PRESETS.length - 1, presetSel + 1); drawPresets(); }],
+             ['Load', 'Load preset', loadSel],
+             ['Save', 'Save preset', function () {
+               if (presetSel >= FACTORY) PRESETS[presetSel] = capturePreset(PRESETS[presetSel].name);
+               else { PRESETS.push(capturePreset('User ' + (PRESETS.length - FACTORY + 1))); presetSel = PRESETS.length - 1; }
+               savePresets(); drawPresets(); }],
+             ['Rand', 'Randomize', function () { randomize(); syncUI(); }]];
+  nav.forEach(function (n, j) { key(lx + j * (nw + 6), ny, nw, 24, n[0].length === 1 ? '' : n[0], null, { glyph: n[0].length === 1 ? n[0] : null, fs: n[0].length === 1 ? 10 : 8.5, aria: n[1], onClick: n[2] }); });
+}
+function loadSel() { applyPreset(PRESETS[presetSel]); syncUI(); }
+
+function buildSDM(m) {
+  var x = m[0], y = m[1], w = m[2], h = m[3];
+  sec(x, y, w, h, 'Source · Display · Master');
+  ui.src = radio([0, 1, 2, 3].map(function (j) { return [x + 16 + j * 50, y + 18]; }), 44, 22, ['Tone', 'Mic', 'Line', 'File'], function (i) { setSource(['tone', 'mic', 'line', 'file'][i]); });
+  ui.mode = radio([[x + 226, y + 18], [x + 276, y + 18]], 44, 22, ['Wave', 'XY'], function (i) { state.mode = i ? 'xy' : 'waveform'; ui.mode.select(i); });
+  ui.grid = key(x + 342, y + 18, 44, 22, 'Grid', 'on', { fs: 9, onClick: function () { state.grid = !state.grid; ui.grid.set(state.grid ? 'on' : 'off'); } });
+  ui.glow = key(x + 392, y + 18, 44, 22, 'Glow', 'on', { fs: 9, onClick: function () { state.glow = !state.glow; ui.glow.set(state.glow ? 'on' : 'off'); } });
+  var Sg = function () { return state; }, sp = (w - 32) / 10, cy = y + h - 50, kx = function (k) { return x + 16 + sp * (k + 0.5); };
+  cl((kx(0) + kx(2)) / 2, cy - 38, sp * 3, 'Display', PRINT(8));
+  cl((kx(3) + kx(9)) / 2, cy - 38, sp * 7, 'Master', PRINT(8));
+  [['Hue', 'hue'], ['Hue Spd', 'hueSpeed'], ['Rotate', 'rotation'], ['Persist', 'persistence'], ['Hold', 'hold'], ['Gain', 'gain'],
+   ['Width', 'lineWidth'], ['Time', 'masterTime'], ['Fast', 'masterTimeFast'], ['Detune', 'masterDetune']].forEach(function (d, k) {
+    knob(kx(k), cy, 22, d[0], Sg, d[1], PD[d[1]], { fs: 8 });
+  });
+}
+
+var FXDEF = [['Filter', 'filterAmount', 'filter'], ['Band Pass', 'bandpassFreq', 'bandpass'], ['Saturate', 'saturation', 'saturation'], ['Chorus', 'chorusVoices', 'chorus']];
+function buildFX(m) {
+  var x = m[0], y = m[1], w = m[2], h = m[3], wide = w >= 400;
+  sec(x, y, w, h, 'Effects');
+  ui.fxScreen = glass(x + 16, y + 18, w - 32, wide ? 30 : 34, 'Filter and band-pass response');
+  var Fx = function () { return state.fx; };
+  ui.byp = [];
+  FXDEF.forEach(function (d, k) {
+    var cx, cy;
+    if (wide) { cx = x + 16 + (w - 32) * (k + 0.5) / 4; cy = y + h - 76; }
+    else { cx = x + 16 + (w - 32) * ((k % 2) + 0.5) / 2; cy = y + 100 + Math.floor(k / 2) * 114; }
+    knob(cx, cy, 30, d[0], Fx, d[1], PD[d[1]], { after: drawFx });
+    var b = key(cx - 30, cy + 46, 60, 20, 'Bypass', 'byp', { fs: 8, onClick: function () { state.fx.byp[d[2]] = !state.fx.byp[d[2]]; syncByp(); drawFx(); } });
+    ui.byp.push(b);
+  });
+}
+function syncByp() {
+  FXDEF.forEach(function (d, k) { var on = !state.fx.byp[d[2]]; ui.byp[k].set(on ? 'on' : 'byp'); ui.byp[k].txt.textContent = on ? 'Active' : 'Bypass'; ui.byp[k].b.setAttribute('aria-label', d[0] + (on ? ' active' : ' bypassed')); });
+}
+// Magnitude response of the Filter and Band Pass stages (log frequency, 20 Hz to 20 kHz).
+function drawFx() {
+  var f = state.fx, sr = E.sr || 48000;
+  var fs = filterSpec(f.filterAmount), fc = coef(fs[0], fs[1], 0.9, sr), bc = coef('bandpass', f.bandpassFreq, 5, sr);
+  var mag = function (c, hz) {
+    var w = TAU * hz / sr, cr = Math.cos(w), ci = -Math.sin(w), c2r = Math.cos(2 * w), c2i = -Math.sin(2 * w);
+    var nr = c.b0 + c.b1 * cr + c.b2 * c2r, ni = c.b1 * ci + c.b2 * c2i, dr = 1 + c.a1 * cr + c.a2 * c2r, di = c.a1 * ci + c.a2 * c2i;
+    return Math.sqrt((nr * nr + ni * ni) / (dr * dr + di * di));
+  };
+  curve(ui.fxScreen, function (t) {
+    var hz = 20 * Math.pow(1000, t), m = 1;
+    if (!f.byp.filter) m *= mag(fc, hz);
+    if (!f.byp.bandpass) m *= mag(bc, hz);
+    return clamp((20 * Math.log10(m + 1e-6) + 24) / 24) * 1.8 - 0.9;
+  }, { fill: true, dim: f.byp.filter && f.byp.bandpass });
+}
+
+// Signal paths: L red, R green. A chord layer passed to FM leaves the mix, so its drop to the bus goes grey and dotted.
+function drawRoutes() {
+  var G = GEO, s = '';
+  var path = function (d, col, dotted, w) { return '<path d="' + d + '" style="fill:none;stroke:' + col + ';stroke-width:' + (w || 1.4) + ';stroke-linecap:round' + (dotted ? ';stroke-dasharray:1 4' : '') + '"></path>'; };
+  G.bus.forEach(function (d, c) { s += path(d, c ? P.Y : P.X); s += '<path d="' + G.heads[c] + '" style="fill:' + (c ? P.Y : P.X) + '"></path>'; });
+  G.drops.forEach(function (d, i) { var o = state.osc[i], dead = o.fm && i % 3 !== 0; s += path(d, dead ? P.idle : (i < 3 ? P.X : P.Y), dead, dead ? 1.6 : 1.4); });
+  G.rings.forEach(function (r) { s += path('M' + (r[0] - G.ringGap) + ' ' + r[1] + 'H' + (r[0] - 8) + 'M' + (r[0] + 8) + ' ' + r[1] + 'H' + (r[0] + G.ringGap), P.inkMute, false, 1.2); });
+  routeSvg.innerHTML = s;
+}
+
+function pname(i) { return i < 0 || i >= PRESETS.length ? '' : (i < 9 ? '0' : '') + (i + 1) + '  ' + PRESETS[i].name + (i >= FACTORY ? '  ·' : ''); }
+function drawPresets() {
+  var mid = Math.floor(presetLines / 2), out = [];
+  for (var j = -mid; j < presetLines - mid; j++) out.push(pname(presetSel + j));
+  pdisp.textContent = out.join('\n');
+}
+function drawWave(i) {
+  var w = state.osc[i].wave, g = ui.osc[i].g;
+  curve(g, function (t) { var p = (t * 2) % 1; return w === 0 || w === 1 ? Math.sin(TAU * p) * 0.8 : wave(w, p, 0) * 0.8; }, { dim: w === 0, col: i < 3 ? P.X : P.Y });
+  g.g.setAttribute('aria-label', 'Oscillator ' + (i + 1) + ': ' + WAVES[w] + '. Click to change.');
+}
+function refreshTransport() {
+  if (!ui.playK) return;
+  ui.playK.set(A.running ? 'on' : 'off'); ui.stopK.set(A.running ? 'off' : 'on'); ui.recK.set(A.recorder ? 'rec' : 'off');
+}
+function syncUI() {
+  ui.syncers.forEach(function (f) { f(); });
+  state.osc.forEach(function (o, i) { drawWave(i); });
+  ui.rings.forEach(function (f) { f(); });
+  ui.src.select(['tone', 'mic', 'line', 'file'].indexOf(state.src)); ui.mode.select(state.mode === 'xy' ? 1 : 0);
+  ui.grid.set(state.grid ? 'on' : 'off'); ui.glow.set(state.glow ? 'on' : 'off');
+  ui.mute.set(state.mute ? 'rec' : 'off'); ui.freeze.set(state.freeze ? 'on' : 'off'); ui.hold.set(state.hold ? 'on' : 'off');
+  syncByp(); drawFx(); drawPresets(); drawRoutes(); refreshTransport();
+}
+
+// ---------------------------------------------------------------- displays
+var FN = 2048, fftRe = new Float32Array(FN), fftIm = new Float32Array(FN), hann = new Float32Array(FN), rev = new Uint16Array(FN), mags = [new Float32Array(FN / 2), new Float32Array(FN / 2)];
+(function () {
+  for (var i = 0; i < FN; i++) { hann[i] = 0.5 - 0.5 * Math.cos(TAU * i / (FN - 1)); var r = 0, x = i; for (var b = 1; b < FN; b <<= 1) { r = (r << 1) | (x & 1); x >>= 1; } rev[i] = r; }
+})();
+function fft() {
+  var n = FN, i, j, len, half, k;
+  for (i = 0; i < n; i++) { j = rev[i]; if (j > i) { var t = fftRe[i]; fftRe[i] = fftRe[j]; fftRe[j] = t; t = fftIm[i]; fftIm[i] = fftIm[j]; fftIm[j] = t; } }
+  for (len = 2; len <= n; len <<= 1) {
+    half = len >> 1; var ang = -TAU / len, wr = Math.cos(ang), wi = Math.sin(ang);
+    for (i = 0; i < n; i += len) {
+      var cr = 1, ci = 0;
+      for (k = 0; k < half; k++) {
+        var a = i + k, b = a + half, xr = fftRe[b] * cr - fftIm[b] * ci, xi = fftRe[b] * ci + fftIm[b] * cr;
+        fftRe[b] = fftRe[a] - xr; fftIm[b] = fftIm[a] - xi; fftRe[a] += xr; fftIm[a] += xi;
+        var nr = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = nr;
+      }
+    }
+  }
+}
+function spectrum(src, out) {
+  var base = (E.sw - FN) & (E.SN - 1), i;
+  for (i = 0; i < FN; i++) { fftRe[i] = src[(base + i) & (E.SN - 1)] * hann[i]; fftIm[i] = 0; }
+  fft();
+  for (i = 0; i < FN / 2; i++) out[i] = Math.sqrt(fftRe[i] * fftRe[i] + fftIm[i] * fftIm[i]) / (FN / 4);
+}
+function drawAnalyzer(dt) {
+  spectrum(E.sL, mags[0]); spectrum(E.sR, mags[1]);
+  var c = ana.x, w = ana.w, h = ana.h, mid = w / 2, bh = 6, B = Math.floor(h / bh), nyq = E.sr / 2, half = FN / 2;
+  c.fillStyle = '#050406'; c.fillRect(0, 0, w, h);
+  c.fillStyle = 'rgba(207,171,246,0.10)'; for (var gy = 1; gy < 10; gy++) c.fillRect(0, Math.round(h * gy / 10), w, 1);
+  var fall = Math.pow(0.02, dt), pfall = Math.pow(0.25, dt);
+  for (var ch = 0; ch < 2; ch++) {
+    var lv = ana.lv[ch], pk = ana.pk[ch], col = ch ? P.Y : P.X;
+    c.fillStyle = col; c.shadowColor = col; c.shadowBlur = 6;
+    for (var b = 0; b < B && b < 400; b++) {
+      var f0 = 20 * Math.pow(nyq / 20, b / B), f1 = 20 * Math.pow(nyq / 20, (b + 1) / B);
+      var i0 = Math.floor(f0 / nyq * half), i1 = Math.max(i0 + 1, Math.ceil(f1 / nyq * half)), m = 0;
+      for (var i = i0; i < i1 && i < half; i++) if (mags[ch][i] > m) m = mags[ch][i];
+      var v = clamp((20 * Math.log10(m + 1e-9) + 84) / 78);
+      lv[b] = Math.max(v, lv[b] * fall); pk[b] = Math.max(lv[b], pk[b] * pfall);
+      var y = h - (b + 1) * bh, len = lv[b] * (mid - 4), pl = pk[b] * (mid - 4);
+      c.globalAlpha = 0.85;
+      if (ch === 0) c.fillRect(mid - len, y + 1, len, bh - 2); else c.fillRect(mid, y + 1, len, bh - 2);
+      c.globalAlpha = 1;
+      if (pl > 2) c.fillRect(ch === 0 ? mid - pl - 2 : mid + pl, y + 1, 2, bh - 2);
+    }
+  }
+  c.shadowBlur = 0;
+  c.fillStyle = 'rgba(235,235,235,0.35)'; c.fillRect(mid - 0.5, 0, 1, h);
+  c.font = '700 18px "Barlow Semi Condensed", sans-serif'; c.textBaseline = 'top';
+  c.fillStyle = P.X; c.textAlign = 'left'; c.fillText('L', 8, 6);
+  c.fillStyle = P.Y; c.textAlign = 'right'; c.fillText('R', w - 8, 6);
+}
+var realT = 0;
+// The original's renderer: persistence fade (with Hold), grid, then the trace in Trace Hue.
+function drawScope() {
+  var c = sx, W = scope.width, H = scope.height, k = W / 900, st = state, SN1 = E.SN - 1, i, n;
+  c.globalCompositeOperation = 'source-over'; c.shadowBlur = 0;
+  var survival = Math.pow(clamp(st.persistence), 1 / (st.hold + 1));
+  c.fillStyle = 'rgba(5,4,6,' + Math.max(0, 1 - survival) + ')'; c.fillRect(0, 0, W, H);
+  if (st.grid) {
+    c.lineWidth = 1; c.strokeStyle = 'rgba(207,171,246,0.07)';
+    for (i = 1; i < 10; i++) { var p = Math.round(i * W / 10) + 0.5; c.beginPath(); c.moveTo(p, 0); c.lineTo(p, H); c.moveTo(0, p); c.lineTo(W, p); c.stroke(); }
+    c.strokeStyle = 'rgba(207,171,246,0.16)'; c.beginPath(); c.moveTo(W / 2, 0); c.lineTo(W / 2, H); c.moveTo(0, H / 2); c.lineTo(W, H / 2); c.stroke();
+  }
+  var hue = ((st.hue + st.hueSpeed * realT) % 360 + 360) % 360, wf = (st.lineWidth - 0.5) / 14.5;
+  var col = 'hsla(' + hue.toFixed(1) + ',90%,60%,' + (1 - 0.5 * wf).toFixed(3) + ')';
+  c.strokeStyle = col; c.lineWidth = st.lineWidth * k; c.lineJoin = 'round'; c.lineCap = 'round';
+  c.globalCompositeOperation = 'lighter'; c.shadowBlur = st.glow ? 14 * k : 0; c.shadowColor = col;
+  if (st.mode === 'xy') {
+    n = 1024; var i0 = (E.sw - n) & SN1;
+    c.beginPath();
+    for (i = 0; i < n; i++) { var j = (i0 + i) & SN1, x = W / 2 + E.sL[j] * st.gain * (W / 2) * 0.9, y = H / 2 - E.sR[j] * st.gain * (H / 2) * 0.9; if (i) c.lineTo(x, y); else c.moveTo(x, y); }
+    c.stroke();
+  } else {
+    var mt = st.masterTime * st.masterTimeFast;
+    c.save(); c.translate(W / 2, H / 2); c.rotate(st.rotation * Math.PI / 180); c.translate(-W / 2, -H / 2);
+    [[E.sL, st.osc[0].freq * mt, H / 4], [E.sR, st.osc[3].freq * mt, 3 * H / 4]].forEach(function (chn) {
+      var period = E.sr / Math.max(1, chn[1]), win = Math.max(2, Math.min(12000, Math.round(7 * period))), margin = Math.min(4000, Math.ceil(period) + 1);
+      var start = (E.sw - win - margin) & SN1, trig = 0;
+      for (var q = 1; q < margin; q++) { var a = chn[0][(start + q - 1) & SN1], b = chn[0][(start + q) & SN1]; if (a < 0 && b >= 0) { trig = q; break; } }
+      c.beginPath();
+      for (var t = 0; t < win; t++) { var v = chn[0][(start + trig + t) & SN1], xx = t / (win - 1) * W, yy = chn[2] - v * st.gain * (H / 4) * 0.9; if (t) c.lineTo(xx, yy); else c.moveTo(xx, yy); }
+      c.stroke();
+    });
+    c.restore();
+  }
+  c.globalCompositeOperation = 'source-over'; c.shadowBlur = 0;
+}
+
+// ---------------------------------------------------------------- run loop and window fit
+var pL = new Float32Array(4096), pR = new Float32Array(4096), zero = new Float32Array(4096), lastT = 0, blink = 0;
+E.init(48000);
+function frame(t) {
+  var dt = lastT ? Math.min(0.1, (t - lastT) / 1000) : 1 / 60; lastT = t;
+  if (!A.running) E.process(zero, zero, pL, pR, Math.min(4096, Math.round(E.sr * dt)));   // silent preview until Play
+  if (!state.freeze) { realT += dt; drawScope(); drawAnalyzer(dt); }
+  if (!A.running) { blink += dt; ui.playK.set(Math.floor(blink * 2) % 2 ? 'on' : 'off'); }
+  else if (A.recorder) { blink += dt; ui.recK.set(Math.floor(blink * 2) % 2 ? 'rec' : 'off'); }
+  requestAnimationFrame(frame);
+}
+var layoutKey = null, layoutH = 0, rebuildT = 0;
+function wanted() {
+  var h = location.hash, ww = window.innerWidth, wh = window.innerHeight;
+  var lk = h === '#portrait' ? 'port' : h === '#landscape' ? 'land' : (wh > ww ? 'port' : 'land');
+  var H = lk === 'land' ? clamp(Math.round(1440 * wh / ww), 740, 1000) : clamp(Math.round(900 * wh / ww), 1200, 1700);
+  return { lk: lk, H: H };
+}
+function scaleToWindow() {
+  var k = Math.min(window.innerWidth / GEO.W, window.innerHeight / GEO.H);
+  stage.dataset.scale = String(k);
+  stage.style.transform = 'translate(' + ((window.innerWidth - GEO.W * k) / 2) + 'px,' + ((window.innerHeight - GEO.H * k) / 2) + 'px) scale(' + k + ')';
+}
+function fit() {
+  var w = wanted();
+  if (w.lk !== layoutKey || Math.abs(w.H - layoutH) > 2) { layoutKey = w.lk; layoutH = w.H; build(w.lk, w.H); }
+  scaleToWindow();
+}
+window.addEventListener('resize', function () { scaleToWindow(); clearTimeout(rebuildT); rebuildT = setTimeout(fit, 150); });
+window.addEventListener('hashchange', fit);
+document.addEventListener('keydown', function (e) {
+  if (e.target && e.target.getAttribute && e.target.getAttribute('role') === 'slider') return;
+  if (e.code === 'Space') { e.preventDefault(); if (A.running) stop(); else play(); }
+  if (e.key === 'm' || e.key === 'M') ui.mute.b.click();
+  if (e.key === 'f' || e.key === 'F') ui.freeze.b.click();
+  if (e.key === 'h' || e.key === 'H') ui.hold.b.click();
+});
+fit();
+requestAnimationFrame(frame);
+
+// ---------------------------------------------------------------- self-test (index.html#selftest), JSON in #__report
+if (location.hash === '#selftest') {
+  (function () {
+    var out = {}, n = 4800, L = new Float32Array(n), R = new Float32Array(n);
+    var run = function () { E.init(48000); E.process(zero, zero, L, R, n); var pk = 0, bad = 0; for (var i = 0; i < n; i++) { if (!isFinite(L[i]) || !isFinite(R[i])) bad++; pk = Math.max(pk, Math.abs(L[i]), Math.abs(R[i])); } return { peak: +pk.toFixed(3), bad: bad }; };
+    var zc = function () { var z = 0; for (var i = 1; i < n; i++) if (L[i - 1] < 0 && L[i] >= 0) z++; return z; };
+    out.presets = PRESETS.length; out.firstPresets = PRESETS.slice(0, 3).map(function (p) { return p.name; });
+    out.defaultTone = run(); out.xCycles100ms = zc();
+    var keep = JSON.stringify(state);
+    state.osc[1] = { wave: 1, gain: 1, det: 0, mul: 2, div: 1, fm: false }; out.chordAdds = run();
+    state.osc[1].fm = true; var fmRun = run(); out.fmPeak = fmRun.peak; out.fmChangesShape = zc() !== 22;
+    state.fx.byp = { filter: false, bandpass: false, saturation: false, chorus: false }; state.fx.filterAmount = -0.4; state.fx.saturation = 60; state.fx.chorusVoices = 5;
+    out.allFx = run();
+    state = JSON.parse(keep);
+    var lasso = PRESETS.filter(function (p) { return p.name === 'Lasso'; })[0];
+    applyPreset(lasso); out.lasso = { osc0: state.osc[0], osc1: state.osc[1], masterTime: +state.masterTime.toFixed(4), hold: state.hold }; out.lassoRun = run();
+    var anyFm = PRESETS.filter(function (p) { return p.osc.some(function (o) { return o.fm && o.wave; }); });
+    applyPreset(anyFm[0]); syncUI(); out.fmPreset = anyFm[0].name;
+    out.dottedDrops = routeSvg.innerHTML.split('stroke-dasharray:1 4').length - 1;
+    out.land = { knobs: document.querySelectorAll('[role="slider"]').length, buttons: document.querySelectorAll('button').length, W: GEO.W, H: GEO.H };
+    ui.osc[1].g.g.click(); out.waveCycled = state.osc[1].wave;
+    build('port', 1500); out.port = { knobs: document.querySelectorAll('[role="slider"]').length, buttons: document.querySelectorAll('button').length, W: GEO.W, H: GEO.H, dotted: routeSvg.innerHTML.split('stroke-dasharray:1 4').length - 1 };
+    build(layoutKey, layoutH);
+    out.errors = REPORT;
+    document.getElementById('__report').textContent = JSON.stringify(out);
+  })();
+}
+</script>
 </body>
 </html>
