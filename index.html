@@ -113,7 +113,7 @@ var state = {
   src: 'tone', mode: 'xy', grid: true, glow: true,
   hue: 90, hueSpeed: 0,
   fx: { filterAmount: 0, bandpassFreq: 1000, saturation: 0, chorusVoices: 0, byp: { filter: true, bandpass: true, saturation: true, chorus: true } },
-  mute: false, freeze: false, spinHold: false   // spinHold = the Hold button (stops Spin); state.hold is the Master trail Hold
+  mute: false, freeze: false
 };
 MASTER_KEYS.forEach(function (k) { state[k] = PD[k].def; });
 
@@ -253,7 +253,7 @@ var E = {
     for (k = 0; k < n; k++) {
       var L, R;
       if (tone) {
-        if (!st.spinHold) { this.rot[0] = (this.rot[0] + spX / sr) % 360; this.rot[1] = (this.rot[1] + spY / sr) % 360; }
+        this.rot[0] = (this.rot[0] + spX / sr) % 360; this.rot[1] = (this.rot[1] + spY / sr) % 360;
         var bus0 = 0, bus1 = 0;
         for (g = 0; g < 2; g++) {
           var i0 = 3 * g, i1 = i0 + 1, i2 = i0 + 2, y2 = 0, y1 = 0, y0 = 0, dt, t;
@@ -289,7 +289,7 @@ var E = {
 // ---------------------------------------------------------------- audio graph
 // Tone: engine -> sink (0.2, 0 when muted) -> fatigue guard (LP 5 kHz, low shelf -12 dB at 2 kHz, limiter) -> speakers.
 // Mic and Line are analysed but not played (silent, as in the original); a File plays directly.
-var A = { ctx: null, node: null, sink: null, fileOut: null, rec: null, recorder: null, live: null, liveSrc: null, file: null, running: false };
+var A = { ctx: null, node: null, sink: null, fileOut: null, live: null, liveSrc: null, file: null, running: false };
 function ensureAudio() {
   if (A.ctx) return;
   var AC = window.AudioContext || window.webkitAudioContext;
@@ -305,9 +305,8 @@ function ensureAudio() {
   var shelf = A.ctx.createBiquadFilter(); shelf.type = 'lowshelf'; shelf.frequency.value = 2000; shelf.gain.value = -12; shelf.Q.value = 0.5;
   var lim = A.ctx.createDynamicsCompressor(); lim.threshold.value = -24; lim.ratio.value = 20; lim.knee.value = 0;
   A.fileOut = A.ctx.createGain();
-  A.rec = A.ctx.createMediaStreamDestination();
-  A.node.connect(A.sink); A.sink.connect(lpf); lpf.connect(shelf); shelf.connect(lim); lim.connect(A.ctx.destination); lim.connect(A.rec);
-  A.fileOut.connect(A.ctx.destination); A.fileOut.connect(A.rec);
+  A.node.connect(A.sink); A.sink.connect(lpf); lpf.connect(shelf); shelf.connect(lim); lim.connect(A.ctx.destination);
+  A.fileOut.connect(A.ctx.destination);
   setGain();
 }
 function setGain() {
@@ -317,22 +316,7 @@ function setGain() {
   A.fileOut.gain.setTargetAtTime(state.mute ? 0 : 1, t, 0.02);
 }
 function play() { ensureAudio(); A.ctx.resume(); A.running = true; refreshTransport(); }
-function stop() { if (A.recorder) toggleRec(); if (A.ctx) A.ctx.suspend(); A.running = false; refreshTransport(); }
-function toggleRec() {
-  if (A.recorder) { A.recorder.stop(); return; }
-  if (!window.MediaRecorder) return;
-  play();
-  var chunks = [], r = new MediaRecorder(A.rec.stream);
-  r.ondataavailable = function (e) { if (e.data.size) chunks.push(e.data); };
-  r.onstop = function () {
-    A.recorder = null; refreshTransport();
-    var a = document.createElement('a'), d = new Date();
-    a.href = URL.createObjectURL(new Blob(chunks, { type: r.mimeType || 'audio/webm' }));
-    a.download = 'L9-Loop-' + d.toISOString().slice(0, 19).replace(/[:T]/g, '-') + '.webm';
-    document.body.appendChild(a); a.click(); a.remove();
-  };
-  r.start(); A.recorder = r; refreshTransport();
-}
+function stop() { if (A.ctx) A.ctx.suspend(); A.running = false; refreshTransport(); }
 function dropSource() {
   if (A.liveSrc) { A.liveSrc.disconnect(); A.liveSrc = null; }
   if (A.live) { A.live.getTracks().forEach(function (t) { t.stop(); }); A.live = null; }
@@ -418,7 +402,7 @@ function knob(x, y, size, label, obj, key, d, o) {
   el('div', 'position:absolute;left:50%;top:4%;width:2px;height:42%;margin-left:-1px;border-radius:1px;background:' + P.ink, ptr);
   var lab = el('span', 'margin-top:5px;font-size:' + (o.fs || 8.5) + 'px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:' + P.inkDim + ';white-space:nowrap', wrap, label);
   var k = {
-    v: 0, lab: lab, steps: steps(d), def: toV(d, d.def),
+    v: 0, lab: lab, skirt: skirt, steps: steps(d), def: toV(d, d.def),
     text: function () { return lab.textContent + '  ' + d.f(obj()[key]); },
     show: function (v) { k.v = v; ptr.style.transform = 'rotate(' + (-135 + v * 270) + 'deg)'; ring.setAttribute('aria-valuetext', d.f(obj()[key])); },
     set: function (v) { var x = fromV(d, v); obj()[key] = x; k.show(k.steps ? toV(d, x) : clamp(v)); if (o.after) o.after(x); },
@@ -625,34 +609,54 @@ function buildOscillators(G) {
 
 // Source & Display: transport, Mute / Freeze / Hold, input, display mode, trace knobs, then the preset list in what is left.
 // Wide (landscape column): one row of six keys and five knobs in a row. Narrow (portrait column): 3 + 3 keys, 3 + 2 knobs.
+// Output key icons show the mode a click switches to: the initial XY figure (2:3 Lissajous) while in Wave mode, and the
+// stereo Wave (sine over square) while in XY mode.
+var ICON_GREEN = '#3fbf6a';
+var OUT_ICON = (function () {
+  var xy = '', i, t;
+  for (i = 0; i <= 120; i++) { t = i / 120 * TAU; xy += (i ? 'L' : 'M') + (16 + 12 * Math.sin(2 * t)).toFixed(2) + ' ' + (16 - 12 * Math.sin(3 * t)).toFixed(2); }
+  var sine = '';
+  for (i = 0; i <= 64; i++) { t = i / 64; sine += (i ? 'L' : 'M') + (2 + 28 * t).toFixed(2) + ' ' + (9 - 5 * Math.sin(TAU * 2 * t)).toFixed(2); }
+  var sq = 'M2 27V19H9V27H16V19H23V27H30V19';
+  var svg = function (d) { return '<svg viewBox="0 0 32 32" width="30" height="30" aria-hidden="true" style="display:block;overflow:visible"><path d="' + d + '" fill="none" stroke="' + ICON_GREEN + '" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" style="filter:drop-shadow(0 0 2px rgba(63,191,106,0.7))"></path></svg>'; };
+  return { xy: svg(xy), wave: svg(sine + sq) };
+})();
+function syncOut() {
+  var xy = state.mode === 'xy';
+  ui.out.txt.innerHTML = xy ? OUT_ICON.wave : OUT_ICON.xy;
+  ui.out.b.setAttribute('aria-label', 'Output: ' + (xy ? 'XY' : 'Wave') + '. Click for ' + (xy ? 'Wave' : 'XY') + '.');
+  ui.out.b.title = xy ? 'Switch to Wave' : 'Switch to XY';
+}
 function buildSD(m) {
   var x = m[0], y = m[1], w = m[2], h = m[3], iw = w - 32, wide = w >= 340;
   sec(x, y, w, h, 'Source & Display');
-  var tk = wide ? 48 : 64, tg = wide ? (iw - 6 * tk - 16) / 4 : (iw - 3 * tk) / 2;
-  var tp = function (j) {
-    if (!wide) return [x + 16 + (j % 3) * (tk + tg), y + 18 + (j > 2 ? 62 : 0)];
-    return [j < 3 ? x + 16 + j * (tk + tg) : x + 16 + iw - (6 - j) * tk - (5 - j) * tg, y + 18];
-  };
-  var T = function (j, label, led, o) { var p = tp(j); return key(p[0], p[1], tk, 28, label, led, o); };
+  // Transport and state keys in one row: Play, Stop | Mute, Freeze.
+  var tk = wide ? 72 : 48, tx4 = wide ? [0, 80, 192, 272] : [0, 54, 114, 168];
+  var T = function (j, label, led, o) { return key(x + 16 + tx4[j], y + 18, tk, 28, label, led, o); };
   ui.playK = T(0, '', 'off', { tint: 'red', glyph: '▶', fs: 13, below: 'Play', aria: 'Play', onClick: play });
   ui.stopK = T(1, '', 'off', { tint: 'red', glyph: '■', fs: 12, below: 'Stop', aria: 'Stop', onClick: stop });
-  ui.recK = T(2, '', 'off', { tint: 'red', glyph: '●', fs: 12, below: 'Rec', aria: 'Record', onClick: toggleRec });
-  ui.mute = T(3, 'Mute', 'off', { tint: 'blue', below: 'Audio', onClick: function () { state.mute = !state.mute; ui.mute.set(state.mute ? 'rec' : 'off'); setGain(); } });
-  ui.freeze = T(4, 'Freeze', 'off', { tint: 'blue', below: 'Display', onClick: function () { state.freeze = !state.freeze; ui.freeze.set(state.freeze ? 'on' : 'off'); } });
-  ui.hold = T(5, 'Hold', 'off', { tint: 'blue', below: 'Spin', onClick: function () { state.spinHold = !state.spinHold; ui.hold.set(state.spinHold ? 'on' : 'off'); } });
+  ui.mute = T(2, 'Mute', 'off', { tint: 'blue', below: 'Audio', onClick: function () { state.mute = !state.mute; ui.mute.set(state.mute ? 'rec' : 'off'); setGain(); } });
+  ui.freeze = T(3, 'Freeze', 'off', { tint: 'blue', below: 'Display', onClick: function () { state.freeze = !state.freeze; ui.freeze.set(state.freeze ? 'on' : 'off'); } });
 
-  var r = y + (wide ? 80 : 142), k4 = Math.floor((iw - 18) / 4), p4 = function (j, yy) { return [x + 16 + j * (k4 + 6), yy]; };
-  ui.src = radio([0, 1, 2, 3].map(function (j) { return p4(j, r); }), k4, 22, ['Tone', 'Mic', 'Line', 'File'], function (i) { setSource(['tone', 'mic', 'line', 'file'][i]); });
-  ui.mode = radio([p4(0, r + 30), p4(1, r + 30)], k4, 22, ['Wave', 'XY'], function (i) { state.mode = i ? 'xy' : 'waveform'; ui.mode.select(i); });
-  ui.grid = key(p4(2)[0], r + 30, k4, 22, 'Grid', 'on', { fs: 9, onClick: function () { state.grid = !state.grid; ui.grid.set(state.grid ? 'on' : 'off'); } });
-  ui.glow = key(p4(3)[0], r + 30, k4, 22, 'Glow', 'on', { fs: 9, onClick: function () { state.glow = !state.glow; ui.glow.set(state.glow ? 'on' : 'off'); } });
+  // Input (2 x 2), Output (one double-height key that flips XY / Wave), then Grid and Glow stacked.
+  var ly0 = y + 74, r0 = y + 88, r1 = y + 116, ik = wide ? 60 : 50, ow = wide ? 64 : 50, gk = wide ? 60 : 40;
+  var gap = (iw - (2 * ik + 6) - ow - gk) / 2, ix = x + 16, ox = ix + 2 * ik + 6 + gap, gx = ox + ow + gap;
+  cl(ix + ik + 3, ly0, 2 * ik + 6, 'Input', PRINT(8));
+  ui.src = radio([[ix, r0], [ix + ik + 6, r0], [ix, r1], [ix + ik + 6, r1]], ik, 22, ['Tone', 'Mic', 'Line', 'File'], function (i) { setSource(['tone', 'mic', 'line', 'file'][i]); });
+  cl(ox + ow / 2, ly0, ow + 20, 'Output', PRINT(8));
+  ui.out = key(ox, r0, ow, 50, '', null, { onClick: function () { state.mode = state.mode === 'xy' ? 'waveform' : 'xy'; syncOut(); } });
+  ui.grid = key(gx, r0, gk, 22, 'Grid', 'on', { fs: 9, onClick: function () { state.grid = !state.grid; ui.grid.set(state.grid ? 'on' : 'off'); } });
+  ui.glow = key(gx, r1, gk, 22, 'Glow', 'on', { fs: 9, onClick: function () { state.glow = !state.glow; ui.glow.set(state.glow ? 'on' : 'off'); } });
 
-  // Trace knobs. The Hue and Hue Spd labels take the beam's current colour (see beamLabels).
-  var Sg = function () { return state; }, ky = r + 96;
+  // Trace knobs. Hue and Hue Spd labels take the beam's colour; Persist and Hold glow with the trail length (see beamLabels).
+  var Sg = function () { return state; }, ky = y + 178;
   var DK = [['Hue', 'hue'], ['Hue Spd', 'hueSpeed'], ['Persist', 'persistence'], ['Hold', 'hold']];
-  ui.hueLabs = [];
-  DK.forEach(function (d, k) { var kn = knob(x + 16 + iw * (k + 0.5) / 4, ky, 22, d[0], Sg, d[1], PD[d[1]], { fs: 8 }); if (k < 2) ui.hueLabs.push(kn.lab); });
-  beamLabCol = '';
+  ui.hueLabs = []; ui.trailKnobs = [];
+  DK.forEach(function (d, k) {
+    var kn = knob(x + 16 + iw * (k + 0.5) / 4, ky, 22, d[0], Sg, d[1], PD[d[1]], { fs: 8 });
+    (k < 2 ? ui.hueLabs : ui.trailKnobs).push(k < 2 ? kn.lab : kn);
+  });
+  beamLabCol = ''; trailGlowKey = '';
 
   // Preset list: every preset is a line; tap or click one to select and load it, scroll with the wheel or a finger.
   var lx = x + 16, ly = ky + 54, lw = iw, ny = y + h - 42, lh = ny - 10 - ly;
@@ -785,15 +789,15 @@ function drawWave(i) {
 }
 function refreshTransport() {
   if (!ui.playK) return;
-  ui.playK.set(A.running ? 'on' : 'off'); ui.stopK.set(A.running ? 'off' : 'on'); ui.recK.set(A.recorder ? 'rec' : 'off');
+  ui.playK.set(A.running ? 'on' : 'off'); ui.stopK.set(A.running ? 'off' : 'on');
 }
 function syncUI() {
   ui.syncers.forEach(function (f) { f(); });
   state.osc.forEach(function (o, i) { drawWave(i); });
   ui.rings.forEach(function (f) { f(); });
-  ui.src.select(['tone', 'mic', 'line', 'file'].indexOf(state.src)); ui.mode.select(state.mode === 'xy' ? 1 : 0);
+  ui.src.select(['tone', 'mic', 'line', 'file'].indexOf(state.src)); syncOut();
   ui.grid.set(state.grid ? 'on' : 'off'); ui.glow.set(state.glow ? 'on' : 'off');
-  ui.mute.set(state.mute ? 'rec' : 'off'); ui.freeze.set(state.freeze ? 'on' : 'off'); ui.hold.set(state.spinHold ? 'on' : 'off');
+  ui.mute.set(state.mute ? 'rec' : 'off'); ui.freeze.set(state.freeze ? 'on' : 'off');
   syncByp(); drawFx(); drawPresets(); drawRoutes(); refreshTransport();
 }
 
@@ -968,22 +972,33 @@ function drawScope(dt) {
 }
 
 // ---------------------------------------------------------------- run loop and window fit
-// The Hue and Hue Spd labels show the beam's current colour (Trace Hue advanced by Hue Speed); restyled only on change.
-var beamLabCol = '';
+// The Hue and Hue Spd labels show the beam's current colour (Trace Hue advanced by Hue Speed). Persist and Hold glow in that
+// colour, more strongly the longer the trail they make together (frames for the trace to fade to 10%, on a log scale).
+// Restyled only when something changes.
+var beamLabCol = '', trailGlowKey = '';
+function trailAmount() {
+  var s = Math.pow(clamp(state.persistence), 1 / (state.hold + 1));
+  if (s >= 0.999) return 1;
+  var n = Math.log(0.1) / Math.log(Math.max(1e-6, s));
+  return clamp(Math.log(Math.max(1, n / 1.6)) / Math.log(250));
+}
 function beamLabels() {
   if (!ui.hueLabs) return;
-  var h = ((state.hue + state.hueSpeed * realT) % 360 + 360) % 360, c = 'hsl(' + Math.round(h) + ',90%,60%)';
-  if (c === beamLabCol) return;
-  beamLabCol = c; ui.hueLabs.forEach(function (l) { l.style.color = c; });
+  var h = Math.round(((state.hue + state.hueSpeed * realT) % 360 + 360) % 360), c = 'hsl(' + h + ',90%,60%)';
+  if (c !== beamLabCol) { beamLabCol = c; ui.hueLabs.forEach(function (l) { l.style.color = c; }); }
+  var g = Math.round(trailAmount() * 50) / 50, gk = h + '/' + g;
+  if (gk === trailGlowKey) return;
+  trailGlowKey = gk;
+  var glow = g > 0 ? ',0 0 ' + (3 + 16 * g).toFixed(1) + 'px ' + (1 + 4 * g).toFixed(1) + 'px hsla(' + h + ',90%,60%,' + (0.2 + 0.7 * g).toFixed(2) + ')' : '';
+  ui.trailKnobs.forEach(function (k) { k.skirt.style.boxShadow = '0 0 0 1px #050505,0 6px 10px rgba(0,0,0,0.6)' + glow; });
 }
-var pL = new Float32Array(4096), pR = new Float32Array(4096), zero = new Float32Array(4096), lastT = 0, blink = 0;
+var pL = new Float32Array(4096), pR = new Float32Array(4096), zero = new Float32Array(4096), lastT = 0;
 E.init(48000);
 function frame(t) {
   var dt = lastT ? Math.min(0.1, (t - lastT) / 1000) : 1 / 60; lastT = t;
   if (!A.running) E.process(zero, zero, pL, pR, Math.min(4096, Math.round(E.sr * dt)));   // silent preview until Play
   if (!state.freeze) { realT += dt; drawScope(dt); drawAnalyzer(dt); }
   beamLabels();
-  if (A.recorder) { blink += dt; ui.recK.set(Math.floor(blink * 2) % 2 ? 'rec' : 'off'); }
   requestAnimationFrame(frame);
 }
 var layoutKey = null, layoutH = 0, rebuildT = 0;
@@ -1020,7 +1035,6 @@ document.addEventListener('keydown', function (e) {
   if (e.code === 'Space') { e.preventDefault(); if (A.running) stop(); else play(); }
   if (e.key === 'm' || e.key === 'M') ui.mute.b.click();
   if (e.key === 'f' || e.key === 'F') ui.freeze.b.click();
-  if (e.key === 'h' || e.key === 'H') ui.hold.b.click();
 });
 fit();
 requestAnimationFrame(frame);
