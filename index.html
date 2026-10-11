@@ -489,16 +489,19 @@ var BG = 12;                   // spacing between the L and R signal lines
 function geometry(lk, H) {
   var G = { lk: lk, H: H };
   if (lk === 'land') {
-    // 1440 x 1080: the scope is as tall as the space above the osc row; the column beside it keeps what is left.
-    var oscH = 140, oscY = H - 24 - oscH, top = 36, topB = oscY - 52, s = topB - top, fh = 182;
-    var ax = 32 + s + 24, aw = 140, colX = ax + aw + 24, cw = 1408 - colX;
+    // 1440 x 1080: the Oscilloscope frame is as tall as the space above the osc row, with the beam bay carved into its bottom
+    // edge; the square screen above the bay sets the frame width, and the column beside the analyser keeps what is left.
+    var oscH = 140, oscY = H - 24 - oscH, top = 36, topB = oscY - 52, T = topB - top, fh = 182, hb = 74;
+    var bz = T - 20 - 10 - hb, sw = bz + 36;
+    var ax = 32 + sw + 24, aw = 140, colX = ax + aw + 24, cw = 1408 - colX;
     var xs = [32, 260, 488, 764, 992, 1220], w = 188;
-    G.W = 1440; G.scope = [32, top, s]; G.ana = [ax, top, aw, s];
-    G.sd = [colX, top, cw, s - fh - 16]; G.fx = [colX, topB - fh, cw, fh];
+    G.W = 1440; G.scope = [32, top, sw, T]; G.bez = [50, top + 20, bz]; G.bay = [50, top + 20 + bz + 10, bz, hb + 1, false];
+    G.ana = [ax, top, aw, T];
+    G.sd = [colX, top, cw, T - fh - 16]; G.fx = [colX, topB - fh, cw, fh];
     G.osc = xs.map(function (x) { return [x, oscY, w, oscH]; }); G.oscRow = true;
     G.rings = [[240, oscY + 30], [468, oscY + 30], [972, oscY + 30], [1200, oscY + 30]]; G.ringGap = 20;
     // L and R stay BG (12 px) apart wherever they enter a module; R runs above L so the two never cross.
-    var fx = G.fx, yL = fx[1] + Math.round(fx[3] * 0.55), yR = yL - BG, lL = oscY - 30, lR = lL + BG, sR = 32 + s;
+    var fx = G.fx, yL = fx[1] + Math.round(fx[3] * 0.55), yR = yL - BG, lL = oscY - 30, lR = lL + BG, sR = 32 + sw;
     G.drops = xs.map(function (x, i) { return 'M' + (x + w - 34) + ' ' + oscY + 'V' + (i < 3 ? lL : lR); });
     G.dropX = xs.map(function (x) { return x + w - 34; }); G.laneY = [lL, lR];
     G.busTail = [
@@ -507,23 +510,26 @@ function geometry(lk, H) {
     var lh = function (xx, yy) { return 'M' + xx + ' ' + yy + 'l6 -4v8z'; };
     G.heads = [lh(1409, yL) + lh(ax + aw + 1, yL) + lh(sR + 1, yL), lh(1409, yR) + lh(ax + aw + 1, yR) + lh(sR + 1, yR)];
   } else {
-    // 900 x 1200: Effects under the scope, Source & Display under the analyser, the osc rows below Effects.
-    var fy = 560, fh = 182, laneL = fy + fh + 24, r1 = laneL + 26, laneR = r1 + 168 + 22, r2 = laneR + 26, px = [32, 210, 388];
-    G.W = 900; G.scope = [32, 36, 500]; G.ana = [572, 36, 248, 500];
-    G.fx = [32, fy, 500, fh]; G.sd = [572, fy, 248, H - 24 - fy];
+    // 900 x 1200: the Oscilloscope frame (548 wide) has the beam bay carved into its right edge; Effects under it, the analyser
+    // and Source & Display in the right column, the osc rows below Effects.
+    var bw = 80, bz = 548 - 18 - 10 - bw, sh = bz + 36, fy = 36 + sh + 24, fh = 182;
+    var laneL = fy + fh + 28, r1 = laneL + 33, laneR = r1 + 168 + 28, r2 = laneR + 33, px = [32, 210, 388];
+    G.W = 900; G.scope = [32, 36, 548, sh]; G.bez = [50, 56, bz]; G.bay = [50 + bz + 10, 56, bw + 1, 400, true];
+    G.ana = [620, 36, 248, sh];
+    G.fx = [32, fy, 500, fh]; G.sd = [620, fy, 248, H - 24 - fy];
     G.osc = [[32, r1], [210, r1], [388, r1], [32, r2], [210, r2], [388, r2]].map(function (p) { return [p[0], p[1], 144, 168]; }); G.oscRow = false;
     G.rings = [[193, r1 + 26], [371, r1 + 26], [193, r2 + 26], [371, r2 + 26]]; G.ringGap = 17;
     // Buses climb the gap right of the osc rows into Effects (R outer and higher, so they never cross),
     // then Effects feeds the scope above it and the scope feeds the analyser.
-    var yL = fy + 98, yR = yL - BG, sb = 536, yA = 466;   // sb: scope section bottom; yA: L into the analyser (R is BG above)
+    var yL = fy + 98, yR = yL - BG, sb = 36 + sh, yA = 488;   // sb: scope frame bottom; yA: L into the analyser, below the bay (R is BG above)
     G.drops = [0, 1, 2, 3, 4, 5].map(function (i) { var x = px[i % 3] + 90; return i < 3 ? 'M' + x + ' ' + r1 + 'V' + laneL : 'M' + x + ' ' + r2 + 'V' + laneR; });
     var up = function (xx, yy) { return 'M' + xx + ' ' + yy + 'l-4 6h8z'; }, left = function (xx, yy) { return 'M' + xx + ' ' + yy + 'l6 -4v8z'; },
         right = function (xx, yy) { return 'M' + xx + ' ' + yy + 'l-6 -4v8z'; };
     G.dropX = [0, 1, 2, 3, 4, 5].map(function (i) { return px[i % 3] + 90; }); G.laneY = [laneL, laneR];
     G.busTail = [
-      'H548V' + yL + 'H539M270 ' + fy + 'V' + (sb + 7) + 'M532 ' + yA + 'H566',
-      'H' + (548 + BG) + 'V' + yR + 'H539M' + (270 + BG) + ' ' + fy + 'V' + (sb + 7) + 'M532 ' + (yA - BG) + 'H566'];
-    G.heads = [left(533, yL) + up(270, sb + 1) + right(572, yA), left(533, yR) + up(270 + BG, sb + 1) + right(572, yA - BG)];
+      'H548V' + yL + 'H539M270 ' + fy + 'V' + (sb + 7) + 'M580 ' + yA + 'H614',
+      'H' + (548 + BG) + 'V' + yR + 'H539M' + (270 + BG) + ' ' + fy + 'V' + (sb + 7) + 'M580 ' + (yA - BG) + 'H614'];
+    G.heads = [left(533, yL) + up(270, sb + 1) + right(620, yA), left(533, yR) + up(270 + BG, sb + 1) + right(620, yA - BG)];
   }
   return G;
 }
@@ -536,14 +542,15 @@ function build(lk, H) {
   hideTip(); panel.innerHTML = '';
   stage.style.width = G.W + 'px'; stage.style.height = G.H + 'px';
   // Oscilloscope: a framed section with its nameplate; inside, a square bezel and canvas with no text.
-  var s = G.scope, bs = s[2] - 36;
-  sec(s[0], s[1], s[2], s[2], 'Oscilloscope');
-  var bez = el('div', at(s[0] + 18, s[1] + 20, bs, bs) + ';box-sizing:border-box;padding:12px;border-radius:8px;background:#0b0b0c;box-shadow:inset 0 2px 6px rgba(0,0,0,0.9),0 1px 0 rgba(255,255,255,0.06)');
+  var s = G.scope, bs = G.bez[2];
+  sec(s[0], s[1], s[2], s[3], 'Oscilloscope');
+  var bez = el('div', at(G.bez[0], G.bez[1], bs, bs) + ';box-sizing:border-box;padding:12px;border-radius:8px;background:#0b0b0c;box-shadow:inset 0 2px 6px rgba(0,0,0,0.9),0 1px 0 rgba(255,255,255,0.06)');
   bez.setAttribute('aria-label', 'Oscilloscope');
   var scrIn = el('div', 'position:relative;width:100%;height:100%;border-radius:3px;background:#050406;overflow:hidden', bez);
   scope = el('canvas', 'position:absolute;inset:0;width:100%;height:100%', scrIn);
   scope.cssW = bs - 24; scope.width = scope.height = scope.cssW * 2;
   sx = scope.getContext('2d'); sx.fillStyle = '#050406'; sx.fillRect(0, 0, scope.width, scope.height);
+  buildScopeBay(G);
 
   // Stereo spectrum analyser: L to the left of the centre line, R to the right, frequency rising up the strip.
   var a = G.ana;
@@ -609,6 +616,31 @@ function buildOscillators(G) {
 
 // Source & Display: transport, Mute / Freeze / Hold, input, display mode, trace knobs, then the preset list in what is left.
 // Wide (landscape column): one row of six keys and five knobs in a row. Narrow (portrait column): 3 + 3 keys, 3 + 2 knobs.
+// Beam controls in a bay carved into the Oscilloscope frame: Output (XY / Wave, unlabelled), Grid, Glow, Hue, Hue Spd,
+// Persist, Hold. Landscape: a strip along the bottom edge; portrait: a column down the right edge. The bay is drawn over the
+// frame's border so the frame outline steps in around it.
+function buildScopeBay(G) {
+  var b = G.bay, x = b[0], y = b[1], w = b[2], h = b[3], down = b[4];
+  el('div', at(x, y, w, h) + ';box-sizing:border-box;border:1px solid ' + P.inkMute + ';' + (down ? 'border-right:none;border-radius:4px 0 0 4px' : 'border-bottom:none;border-radius:4px 4px 0 0') +
+    ';background:#201f22;box-shadow:inset 0 2px 5px rgba(0,0,0,0.4);pointer-events:none');
+  var outK = function (kx, ky) { ui.out = key(kx, ky, 56, 50, '', null, { onClick: function () { state.mode = state.mode === 'xy' ? 'waveform' : 'xy'; syncOut(); } }); };
+  var gridK = function (kx, ky) { ui.grid = key(kx, ky, 56, 22, 'Grid', 'on', { fs: 9, onClick: function () { state.grid = !state.grid; ui.grid.set(state.grid ? 'on' : 'off'); } }); };
+  var glowK = function (kx, ky) { ui.glow = key(kx, ky, 56, 22, 'Glow', 'on', { fs: 9, onClick: function () { state.glow = !state.glow; ui.glow.set(state.glow ? 'on' : 'off'); } }); };
+  // Hue and Hue Spd labels take the beam's colour; Persist and Hold glow with the trail length (see beamLabels).
+  var Sg = function () { return state; }, DK = [['Hue', 'hue'], ['Hue Spd', 'hueSpeed'], ['Persist', 'persistence'], ['Hold', 'hold']];
+  ui.hueLabs = []; ui.trailKnobs = [];
+  var kn = function (k, kx, ky) { var n = knob(kx, ky, 22, DK[k][0], Sg, DK[k][1], PD[DK[k][1]], { fs: 8 }); (k < 2 ? ui.hueLabs : ui.trailKnobs).push(k < 2 ? n.lab : n); };
+  if (!down) {
+    var x0 = x + (w - (56 + 12 + 56 + 28 + 4 * 80)) / 2;
+    outK(x0, y + 12); gridK(x0 + 68, y + 12); glowK(x0 + 68, y + 40);
+    for (var k = 0; k < 4; k++) kn(k, x0 + 152 + 40 + 80 * k, y + 33);
+  } else {
+    var cx = x + (w - 1) / 2;
+    outK(cx - 28, y + 14); gridK(cx - 28, y + 76); glowK(cx - 28, y + 104);
+    for (var j = 0; j < 4; j++) kn(j, cx, y + 166 + 64 * j);
+  }
+  beamLabCol = ''; trailGlowKey = '';
+}
 // Output key icons show the mode a click switches to: the initial XY figure (2:3 Lissajous) while in Wave mode, and the
 // stereo Wave (sine over square) while in XY mode.
 var ICON_GREEN = '#3fbf6a';
@@ -631,35 +663,20 @@ function buildSD(m) {
   var x = m[0], y = m[1], w = m[2], h = m[3], iw = w - 32, wide = w >= 340;
   sec(x, y, w, h, 'Source & Display');
   // Transport and state keys in one row: Play, Stop | Mute, Freeze.
-  var tk = wide ? 72 : 48, tx4 = wide ? [0, 80, 192, 272] : [0, 54, 114, 168];
+  var tk = wide ? 72 : 48, tg = wide ? 8 : 6, tx4 = [0, tk + tg, iw - 2 * tk - tg, iw - tk];
   var T = function (j, label, led, o) { return key(x + 16 + tx4[j], y + 18, tk, 28, label, led, o); };
   ui.playK = T(0, '', 'off', { tint: 'red', glyph: '▶', fs: 13, below: 'Play', aria: 'Play', onClick: play });
   ui.stopK = T(1, '', 'off', { tint: 'red', glyph: '■', fs: 12, below: 'Stop', aria: 'Stop', onClick: stop });
   ui.mute = T(2, 'Mute', 'off', { tint: 'blue', below: 'Audio', onClick: function () { state.mute = !state.mute; ui.mute.set(state.mute ? 'rec' : 'off'); setGain(); } });
   ui.freeze = T(3, 'Freeze', 'off', { tint: 'blue', below: 'Display', onClick: function () { state.freeze = !state.freeze; ui.freeze.set(state.freeze ? 'on' : 'off'); } });
 
-  // Input (2 x 2), Output (one double-height key that flips XY / Wave), then Grid and Glow stacked.
-  var ly0 = y + 74, r0 = y + 88, r1 = y + 116, ik = wide ? 60 : 50, ow = wide ? 64 : 50, gk = wide ? 60 : 40;
-  var gap = (iw - (2 * ik + 6) - ow - gk) / 2, ix = x + 16, ox = ix + 2 * ik + 6 + gap, gx = ox + ow + gap;
+  // Input: Tone, Mic / Line, File as a 2 x 2 cluster under its label (beam controls live in the Oscilloscope bay).
+  var ly0 = y + 74, r0 = y + 88, r1 = y + 116, ik = Math.min(96, (iw - 6) / 2), ix = x + 16 + (iw - 2 * ik - 6) / 2;
   cl(ix + ik + 3, ly0, 2 * ik + 6, 'Input', PRINT(8));
   ui.src = radio([[ix, r0], [ix + ik + 6, r0], [ix, r1], [ix + ik + 6, r1]], ik, 22, ['Tone', 'Mic', 'Line', 'File'], function (i) { setSource(['tone', 'mic', 'line', 'file'][i]); });
-  cl(ox + ow / 2, ly0, ow + 20, 'Output', PRINT(8));
-  ui.out = key(ox, r0, ow, 50, '', null, { onClick: function () { state.mode = state.mode === 'xy' ? 'waveform' : 'xy'; syncOut(); } });
-  ui.grid = key(gx, r0, gk, 22, 'Grid', 'on', { fs: 9, onClick: function () { state.grid = !state.grid; ui.grid.set(state.grid ? 'on' : 'off'); } });
-  ui.glow = key(gx, r1, gk, 22, 'Glow', 'on', { fs: 9, onClick: function () { state.glow = !state.glow; ui.glow.set(state.glow ? 'on' : 'off'); } });
-
-  // Trace knobs. Hue and Hue Spd labels take the beam's colour; Persist and Hold glow with the trail length (see beamLabels).
-  var Sg = function () { return state; }, ky = y + 178;
-  var DK = [['Hue', 'hue'], ['Hue Spd', 'hueSpeed'], ['Persist', 'persistence'], ['Hold', 'hold']];
-  ui.hueLabs = []; ui.trailKnobs = [];
-  DK.forEach(function (d, k) {
-    var kn = knob(x + 16 + iw * (k + 0.5) / 4, ky, 22, d[0], Sg, d[1], PD[d[1]], { fs: 8 });
-    (k < 2 ? ui.hueLabs : ui.trailKnobs).push(k < 2 ? kn.lab : kn);
-  });
-  beamLabCol = ''; trailGlowKey = '';
 
   // Preset list: every preset is a line; tap or click one to select and load it, scroll with the wheel or a finger.
-  var lx = x + 16, ly = ky + 54, lw = iw, ny = y + h - 42, lh = ny - 10 - ly;
+  var lx = x + 16, ly = r1 + 38, lw = iw, ny = y + h - 42, lh = ny - 10 - ly;
   presetLines = Math.max(1, Math.floor((lh - 10) / 20));
   pdisp = el('div', at(lx, ly, lw, 10 + presetLines * 20) + ';box-sizing:border-box;padding:5px 0;border-radius:4px;background:#050406;' +
     'box-shadow:inset 0 2px 5px rgba(0,0,0,0.9),0 1px 0 rgba(255,255,255,0.06);font-size:11px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;line-height:20px;color:' + P.accent + ';text-shadow:0 0 6px ' + P.accentGlow + ';' +
