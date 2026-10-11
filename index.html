@@ -494,11 +494,11 @@ function geometry(lk, H) {
       right = function (xx, yy) { return 'M' + xx + ' ' + yy + 'l-6 -4v8z'; },
       down = function (xx, yy) { return 'M' + xx + ' ' + yy + 'l-4 -6h8z'; };
   if (lk === 'land') {
-    // 1440 x 1080. Oscilloscope frame (square screen + a double-width control window, with the Spectrum in the notch below
-    // the controls), then Source & Display over Effects. The osc row takes the height that is left (160).
-    var g = 14, fh = 182, CW = 2 * CC, bz = 810, T = bz + 36, fw0 = 18 + bz + 12 + CW + 12, cw = 1440 - 2 * M - fw0 - g;
+    // 1440 x 1080. Oscilloscope frame (square screen + a wide control window, with the Spectrum in the notch below the
+    // controls), then a thin Source & Display over Effects. The osc row takes the height that is left (160).
+    var g = 14, fh = 248, cw = 320, bz = 810, T = bz + 36, fw0 = 1440 - 2 * M - g - cw, CW = fw0 - 18 - bz - 12 - 12;
     var topB = MT + T, oscY = topB + 52, oscH = H - M - oscY, sX = M, colX = sX + fw0 + g;
-    G.W = 1440; G.scope = [sX, MT, fw0, T]; G.bez = [sX + 18, MT + 20, bz]; G.ctl = [sX + 18 + bz + 12, MT + 20, CW, 196];
+    G.W = 1440; G.scope = [sX, MT, fw0, T]; G.bez = [sX + 18, MT + 20, bz]; G.ctl = [sX + 18 + bz + 12, MT + 20, CW, 134]; G.fxStack = true;
     G.sd = [colX, MT, cw, T - fh - 16]; G.fx = [colX, topB - fh, cw, fh];
     var w = 200, xs = [M, M + 240, M + 480, M + 744, M + 984, M + 1224];   // 6 x 200: 40 between modules, 64 between X and Y
     G.osc = xs.map(function (x) { return [x, oscY, w, oscH]; }); G.oscRow = true; G.oscGlass = oscH - 96;
@@ -587,7 +587,7 @@ function build(lk, H) {
 
   buildOscillators(G);
   buildSD(G.sd);
-  buildFX(G.fx);
+  buildFX(G.fx, G.fxStack);
 
   // Routing layer (redrawn when FM or waves change).
   var NS = 'http://www.w3.org/2000/svg';
@@ -645,10 +645,10 @@ function buildOscillators(G) {
 // Beam controls in a column inside the Oscilloscope frame, between the screen and the Spectrum: Output (XY / Wave,
 // unlabelled), Grid, Glow, then Persist, Hold, Hue, Hue Spd. Hue labels take the beam's colour; Persist and Hold labels
 // brighten toward white as they are turned up (see beamLabels). A double-width window (landscape) puts Grid / Glow beside
-// Output and the knobs in a 2 x 2 (Persist, Hold / Hue, Hue Spd).
+// Output and the knobs in a 2 x 2 (Persist, Hold / Hue, Hue Spd); a wide one (200+) puts the four knobs in one row.
 function buildScopeCtl(G) {
-  var c = G.ctl, x = c[0], y = c[1], w = c[2], cx = x + w / 2, two = w >= 120;
-  var kx = two ? [x + 4, x + 68, x + 68] : [cx - 28, cx - 28, cx - 28], ky = two ? [y, y, y + 28] : [y, y + 62, y + 90];
+  var c = G.ctl, x = c[0], y = c[1], w = c[2], cx = x + w / 2, row = w >= 200, two = !row && w >= 120;
+  var kx = row ? [cx - 62, cx + 6, cx + 6] : two ? [x + 4, x + 68, x + 68] : [cx - 28, cx - 28, cx - 28], ky = row || two ? [y, y, y + 28] : [y, y + 62, y + 90];
   el('div', at(x - 6, y, 1, c[3]) + ';background:' + P.inkMute + ';opacity:0.5');
   ui.out = key(kx[0], ky[0], 56, 50, '', null, { onClick: function () { state.mode = state.mode === 'xy' ? 'waveform' : 'xy'; syncOut(); } });
   ui.grid = key(kx[1], ky[1], 56, 22, 'Grid', 'on', { fs: 9, onClick: function () { state.grid = !state.grid; ui.grid.set(state.grid ? 'on' : 'off'); } });
@@ -656,7 +656,7 @@ function buildScopeCtl(G) {
   var Sg = function () { return state; }, DK = [['Persist', 'persistence'], ['Hold', 'hold'], ['Hue', 'hue'], ['Hue Spd', 'hueSpeed']];
   ui.hueLabs = []; ui.trailLabs = [];
   DK.forEach(function (d, k) {
-    var n = knob(two ? x + 32 + 64 * (k % 2) : cx, two ? y + 92 + 64 * Math.floor(k / 2) : y + 152 + 64 * k, 22, d[0], Sg, d[1], PD[d[1]], { fs: 8 });
+    var n = knob(row ? x + w * (k + 0.5) / 4 : two ? x + 32 + 64 * (k % 2) : cx, row ? y + 93 : two ? y + 92 + 64 * Math.floor(k / 2) : y + 152 + 64 * k, 22, d[0], Sg, d[1], PD[d[1]], { fs: 8 });
     if (k < 2) ui.trailLabs.push({ lab: n.lab, key: d[1] }); else ui.hueLabs.push(n.lab);
   });
   beamLabCol = ''; trailLabKey = '';
@@ -724,10 +724,11 @@ function loadSel() { applyPreset(PRESETS[presetSel]); syncUI(); }
 // Stages (screen, knobs, Bypass keys) on the left; the Master knobs as a 2 x 2 cluster on the right.
 var FXDEF = [['Filter', 'filterAmount', 'filter'], ['Band Pass', 'bandpassFreq', 'bandpass'], ['Saturate', 'saturation', 'saturation'], ['Chorus', 'chorusVoices', 'chorus']];
 var MASTERDEF = [['Gain', 'gain'], ['Time', 'masterTime'], ['Fast', 'masterTimeFast'], ['Detune', 'masterDetune']];
-function buildFX(m) {
+// stack (landscape): the four Master knobs sit in a row under the stages, unlabelled, so the column can be thin.
+function buildFX(m, stack) {
   var x = m[0], y = m[1], w = m[2], h = m[3];
   sec(x, y, w, h, 'Effects');
-  var mw = w >= 450 ? 208 : 104, fw = w - 32 - mw - 12, sh = 32, cy = y + 94, step = fw / 4, bw = Math.min(54, step - 6);
+  var mw = stack ? -12 : w >= 450 ? 208 : 104, fw = w - 32 - mw - 12, sh = 32, cy = y + 94, step = fw / 4, bw = Math.min(54, step - 6);
   ui.fxScreen = glass(x + 16, y + 18, fw, sh, 'Filter and band-pass response');
   var Fx = function () { return state.fx; }, Sg = function () { return state; };
   ui.byp = [];
@@ -736,6 +737,10 @@ function buildFX(m) {
     knob(cx, cy, 30, d[0], Fx, d[1], PD[d[1]], { after: drawFx });
     ui.byp.push(key(cx - bw / 2, cy + 46, bw, 20, 'Bypass', 'on', { tint: 'blue', fs: 8, onClick: function () { state.fx.byp[d[2]] = !state.fx.byp[d[2]]; syncByp(); drawFx(); } }));
   });
+  if (stack) {
+    MASTERDEF.forEach(function (d, k) { knob(x + 16 + step * (k + 0.5), cy + 101, 22, d[0], Sg, d[1], PD[d[1]], { fs: 8 }); });
+    return;
+  }
   el('div', at(x + 16 + fw + 6, y + 18, 1, h - 36) + ';background:' + P.inkMute + ';opacity:0.5');
   var mc = x + w - 16 - mw / 2, dx = Math.min(36, mw / 4);
   cl(mc, y + 18, mw, 'Master', PRINT(8));
