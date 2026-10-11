@@ -494,31 +494,31 @@ function geometry(lk, H) {
       right = function (xx, yy) { return 'M' + xx + ' ' + yy + 'l-6 -4v8z'; },
       down = function (xx, yy) { return 'M' + xx + ' ' + yy + 'l-4 -6h8z'; };
   if (lk === 'land') {
-    // 1440 x 1080. Oscilloscope frame (square screen + control column), analyser, then Source & Display over Effects.
+    // 1440 x 1080. Analyser (last in the chain), Oscilloscope frame (square screen + control column), then Source & Display
+    // over Effects.
     // The frame is as tall as the screen needs; the osc row takes the height that is left.
     var aw = 116, g = 14, cw = 374, fh = 182;
     var fw0 = 1440 - 2 * M - g - aw - g - cw, bz = fw0 - 18 - 12 - CC - 12, T = bz + 36;
-    var topB = MT + T, oscY = topB + 70, oscH = H - M - oscY, ax = M + fw0 + g, colX = ax + aw + g;
-    G.W = 1440; G.scope = [M, MT, fw0, T]; G.bez = [M + 18, MT + 20, bz]; G.ctl = [M + 18 + bz + 12, MT + 20, CC, bz];
+    var topB = MT + T, oscY = topB + 52, oscH = H - M - oscY, ax = M, sX = ax + aw + g, colX = sX + fw0 + g;
+    G.W = 1440; G.scope = [sX, MT, fw0, T]; G.bez = [sX + 18, MT + 20, bz]; G.ctl = [sX + 18 + bz + 12, MT + 20, CC, bz];
     G.ana = [ax, MT, aw, T];
     G.sd = [colX, MT, cw, T - fh - 16]; G.fx = [colX, topB - fh, cw, fh];
     var w = 200, xs = [M, M + 240, M + 480, M + 744, M + 984, M + 1224];   // 6 x 200: 40 between modules, 64 between X and Y
     G.osc = xs.map(function (x) { return [x, oscY, w, oscH]; }); G.oscRow = true; G.oscGlass = oscH - 96;
     G.rings = [0, 1, 3, 4].map(function (i) { return [xs[i] + w + 20, oscY + 14 + G.oscGlass / 2]; }); G.ringGap = 20;
     // L and R stay BG (12 px) apart wherever they enter a module. The lanes rise straight into the bottom of Effects (R further
-    // right, so the two never cross). Effects returns under the analyser (band y topB + 12 / 24) and up into the notch cut in the
-    // Oscilloscope frame below Hue Spd, enters the frame there, and the frame feeds the analyser from the notch.
-    var lL = oscY - 30, lR = lL + BG, nt = G.ctl[1] + 396, wx = G.ctl[0] - 6, fb0 = topB;
-    G.notch = [wx, nt, M + fw0, topB];
-    var ex = [colX + 36, colX + 24], band = [topB + 24, topB + 12], nx = [wx + 24, wx + 36], yE = [topB - 60, topB - 72], yS = [topB - 120, topB - 132];
+    // right, so the two never cross). Effects feeds the Oscilloscope across the notch cut in the frame below Hue Spd, and the
+    // frame feeds the analyser on its left, last in the chain.
+    var lL = oscY - 30, lR = lL + BG, nt = G.ctl[1] + 396, wx = G.ctl[0] - 6;
+    G.notch = [wx, nt, sX + fw0, topB];
+    var yE = [topB - 60, topB - 72], yS = [topB - 120, topB - 132];
     var xL = colX + cw - 60, xR = xL + BG;
     G.drops = xs.map(function (x, i) { return 'M' + (x + w - 34) + ' ' + oscY + 'V' + (i < 3 ? lL : lR); });
     G.dropX = xs.map(function (x) { return x + w - 34; }); G.laneY = [lL, lR];
     G.busTail = [0, 1].map(function (c) {
-      return 'H' + [xL, xR][c] + 'V' + (topB + 7) + 'M' + ex[c] + ' ' + fb0 + 'V' + band[c] + 'H' + nx[c] + 'V' + yE[c] + 'H' + (wx + 7) +
-        'M' + wx + ' ' + yS[c] + 'H' + (ax - 7);
+      return 'H' + [xL, xR][c] + 'V' + (topB + 7) + 'M' + colX + ' ' + yE[c] + 'H' + (wx + 7) + 'M' + sX + ' ' + yS[c] + 'H' + (ax + aw + 7);
     });
-    G.heads = [0, 1].map(function (c) { return up([xL, xR][c], topB + 1) + left(wx + 1, yE[c]) + right(ax, yS[c]); });
+    G.heads = [0, 1].map(function (c) { return up([xL, xR][c], topB + 1) + left(wx + 1, yE[c]) + left(ax + aw + 1, yS[c]); });
     // External input (Mic, Line, File): Source & Display feeds Effects directly below it.
     var sdB = G.sd[1] + G.sd[3], fxT = G.fx[1], xi = colX + cw - 100;
     G.inPaths = ['M' + xi + ' ' + sdB + 'V' + (fxT - 7), 'M' + (xi + BG) + ' ' + sdB + 'V' + (fxT - 7)];
