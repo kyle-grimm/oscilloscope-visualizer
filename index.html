@@ -495,7 +495,7 @@ function geometry(lk, H) {
   var G = { lk: lk, H: H };
   if (lk === 'land') {
     // 1440 x 1080: the scope is as tall as the space above the osc row; the column beside it keeps what is left.
-    var oscH = 140, oscY = H - 24 - oscH, top = 52, topB = oscY - 52, s = topB - top, fh = 290;
+    var oscH = 140, oscY = H - 24 - oscH, top = 52, topB = oscY - 52, s = topB - top, fh = 182;
     var ax = 32 + s + 24, aw = 140, colX = ax + aw + 24, cw = 1408 - colX;
     var xs = [32, 260, 488, 764, 992, 1220], w = 188;
     G.W = 1440; G.scope = [32, top, s]; G.ana = [ax, top, aw, s];
@@ -504,9 +504,10 @@ function geometry(lk, H) {
     G.rings = [[240, oscY + 30], [468, oscY + 30], [972, oscY + 30], [1200, oscY + 30]]; G.ringGap = 20;
     var fx = G.fx, yR = fx[1] + Math.round(fx[3] * 0.42), yL = fx[1] + Math.round(fx[3] * 0.62), lL = oscY - 30, lR = oscY - 16, sR = 32 + s;
     G.drops = xs.map(function (x, i) { return 'M' + (x + w - 34) + ' ' + oscY + 'V' + (i < 3 ? lL : lR); });
-    G.bus = [
-      'M' + (xs[0] + w - 34) + ' ' + lL + 'H1414V' + yL + 'H1415M' + colX + ' ' + yL + 'H' + (ax + aw + 7) + 'M' + ax + ' ' + yL + 'H' + (sR + 7),
-      'M' + (xs[3] + w - 34) + ' ' + lR + 'H1426V' + yR + 'H1415M' + colX + ' ' + yR + 'H' + (ax + aw + 7) + 'M' + ax + ' ' + yR + 'H' + (sR + 7)];
+    G.dropX = xs.map(function (x) { return x + w - 34; }); G.laneY = [lL, lR];
+    G.busTail = [
+      'H1414V' + yL + 'H1415M' + colX + ' ' + yL + 'H' + (ax + aw + 7) + 'M' + ax + ' ' + yL + 'H' + (sR + 7),
+      'H1426V' + yR + 'H1415M' + colX + ' ' + yR + 'H' + (ax + aw + 7) + 'M' + ax + ' ' + yR + 'H' + (sR + 7)];
     var lh = function (xx, yy) { return 'M' + xx + ' ' + yy + 'l6 -4v8z'; };
     G.heads = [lh(1409, yL) + lh(ax + aw + 1, yL) + lh(sR + 1, yL), lh(1409, yR) + lh(ax + aw + 1, yR) + lh(sR + 1, yR)];
     G.labels = [[40, lL - 4, 'X · L', P.X], [872, lR - 4, 'Y · R', P.Y]];
@@ -523,9 +524,10 @@ function geometry(lk, H) {
     G.drops = [0, 1, 2, 3, 4, 5].map(function (i) { var x = px[i % 3] + 90; return i < 3 ? 'M' + x + ' ' + r1 + 'V' + laneL : 'M' + x + ' ' + r2 + 'V' + laneR; });
     var up = function (xx, yy) { return 'M' + xx + ' ' + yy + 'l-4 6h8z'; }, left = function (xx, yy) { return 'M' + xx + ' ' + yy + 'l6 -4v8z'; },
         right = function (xx, yy) { return 'M' + xx + ' ' + yy + 'l-6 -4v8z'; };
-    G.bus = [
-      'M122 ' + laneL + 'H548V' + yL + 'H539M266 ' + fy + 'V559M532 470H566',
-      'M122 ' + laneR + 'H560V' + yR + 'H539M298 ' + fy + 'V559M532 490H566'];
+    G.dropX = [0, 1, 2, 3, 4, 5].map(function (i) { return px[i % 3] + 90; }); G.laneY = [laneL, laneR];
+    G.busTail = [
+      'H548V' + yL + 'H539M266 ' + fy + 'V559M532 470H566',
+      'H560V' + yR + 'H539M298 ' + fy + 'V559M532 490H566'];
     G.heads = [left(533, yL) + up(266, 553) + right(572, 470), left(533, yR) + up(298, 553) + right(572, 490)];
     G.labels = [[40, laneL - 4, 'X · L', P.X], [40, laneR - 4, 'Y · R', P.Y]];
   }
@@ -666,13 +668,13 @@ function buildSD(m) {
 function loadSel() { applyPreset(PRESETS[presetSel]); syncUI(); }
 
 // Effects: the four stages with their Bypass keys, plus the Master Gain, Time, Fast and Detune.
-// Strip (portrait, under the scope): stages and Master side by side. Block (landscape column): Master in a row below.
+// Stages (screen, knobs, Bypass keys) on the left; the Master knobs as a 2 x 2 cluster on the right.
 var FXDEF = [['Filter', 'filterAmount', 'filter'], ['Band Pass', 'bandpassFreq', 'bandpass'], ['Saturate', 'saturation', 'saturation'], ['Chorus', 'chorusVoices', 'chorus']];
 var MASTERDEF = [['Gain', 'gain'], ['Time', 'masterTime'], ['Fast', 'masterTimeFast'], ['Detune', 'masterDetune']];
 function buildFX(m) {
-  var x = m[0], y = m[1], w = m[2], h = m[3], strip = w / h > 2;
+  var x = m[0], y = m[1], w = m[2], h = m[3];
   sec(x, y, w, h, 'Effects');
-  var fw = strip ? 248 : w - 32, sh = strip ? 32 : 40, cy = y + 18 + sh + 44, step = fw / 4, bw = strip ? 54 : 60;
+  var mw = w >= 450 ? 208 : 104, fw = w - 32 - mw - 12, sh = 32, cy = y + 94, step = fw / 4, bw = Math.min(54, step - 6);
   ui.fxScreen = glass(x + 16, y + 18, fw, sh, 'Filter and band-pass response');
   var Fx = function () { return state.fx; }, Sg = function () { return state; };
   ui.byp = [];
@@ -681,16 +683,10 @@ function buildFX(m) {
     knob(cx, cy, 30, d[0], Fx, d[1], PD[d[1]], { after: drawFx });
     ui.byp.push(key(cx - bw / 2, cy + 46, bw, 20, 'Bypass', 'byp', { fs: 8, onClick: function () { state.fx.byp[d[2]] = !state.fx.byp[d[2]]; syncByp(); drawFx(); } }));
   });
-  var mx, mw, my;
-  if (strip) {
-    el('div', at(x + 16 + fw + 6, y + 18, 1, h - 36) + ';background:' + P.inkMute + ';opacity:0.5');
-    mx = x + 16 + fw + 12; mw = x + w - 16 - mx; my = cy;
-    cl(mx + mw / 2, y + 30, mw, 'Master', PRINT(8));
-  } else {
-    mx = x + 16; mw = fw; my = cy + 122;
-    cl(mx + mw / 2, my - 40, mw, 'Master', PRINT(8));
-  }
-  MASTERDEF.forEach(function (d, k) { knob(mx + mw * (k + 0.5) / 4, my, 22, d[0], Sg, d[1], PD[d[1]], { fs: 8 }); });
+  el('div', at(x + 16 + fw + 6, y + 18, 1, h - 36) + ';background:' + P.inkMute + ';opacity:0.5');
+  var mc = x + w - 16 - mw / 2, dx = Math.min(36, mw / 4);
+  cl(mc, y + 18, mw, 'Master', PRINT(8));
+  MASTERDEF.forEach(function (d, k) { knob(mc + (k % 2 ? dx : -dx), y + 64 + Math.floor(k / 2) * 64, 22, d[0], Sg, d[1], PD[d[1]], { fs: 8 }); });
 }
 function syncByp() {
   FXDEF.forEach(function (d, k) { var on = !state.fx.byp[d[2]]; ui.byp[k].set(on ? 'on' : 'byp'); ui.byp[k].txt.textContent = on ? 'Active' : 'Bypass'; ui.byp[k].b.setAttribute('aria-label', d[0] + (on ? ' active' : ' bypassed')); });
@@ -712,13 +708,25 @@ function drawFx() {
   }, { fill: true, dim: f.byp.filter && f.byp.bandpass });
 }
 
-// Signal paths: L red, R green. A chord layer passed to FM leaves the mix, so its drop to the bus goes grey and dotted.
+// Signal paths: L red, R green. An oscillator frequency-modulated by its right-hand neighbour is drawn as sounding through
+// that neighbour: its own drop (and the lane up to the next live drop) goes grey and dotted, and the FM link takes the
+// channel colour. Chained FM (3 -> 2 -> 1) leaves the third module as the channel's only live path.
+function oscDead(i) { return i % 3 < 2 && state.osc[i + 1].fm; }
 function drawRoutes() {
   var G = GEO, s = '';
   var path = function (d, col, dotted, w) { return '<path d="' + d + '" style="fill:none;stroke:' + col + ';stroke-width:' + (w || 1.4) + ';stroke-linecap:round' + (dotted ? ';stroke-dasharray:1 4' : '') + '"></path>'; };
-  G.bus.forEach(function (d, c) { s += path(d, c ? P.Y : P.X); s += '<path d="' + G.heads[c] + '" style="fill:' + (c ? P.Y : P.X) + '"></path>'; });
-  G.drops.forEach(function (d, i) { var o = state.osc[i], dead = o.fm && i % 3 !== 0; s += path(d, dead ? P.idle : (i < 3 ? P.X : P.Y), dead, dead ? 1.6 : 1.4); });
-  G.rings.forEach(function (r) { s += path('M' + (r[0] - G.ringGap) + ' ' + r[1] + 'H' + (r[0] - 8) + 'M' + (r[0] + 8) + ' ' + r[1] + 'H' + (r[0] + G.ringGap), P.inkMute, false, 1.2); });
+  [0, 1].forEach(function (c) {
+    var col = c ? P.Y : P.X, i0 = c * 3, first = i0;
+    while (oscDead(first)) first++;
+    if (first > i0) s += path('M' + G.dropX[i0] + ' ' + G.laneY[c] + 'H' + G.dropX[first], P.idle, true, 1.6);
+    s += path('M' + G.dropX[first] + ' ' + G.laneY[c] + G.busTail[c], col);
+    s += '<path d="' + G.heads[c] + '" style="fill:' + col + '"></path>';
+  });
+  G.drops.forEach(function (d, i) { var dead = oscDead(i); s += path(d, dead ? P.idle : (i < 3 ? P.X : P.Y), dead, dead ? 1.6 : 1.4); });
+  G.rings.forEach(function (r, li) {
+    var oi = RING_OSC[li], on = state.osc[oi].fm;
+    s += path('M' + (r[0] - G.ringGap) + ' ' + r[1] + 'H' + (r[0] - 8) + 'M' + (r[0] + 8) + ' ' + r[1] + 'H' + (r[0] + G.ringGap), on ? (oi < 3 ? P.X : P.Y) : P.inkMute, false, on ? 1.6 : 1.2);
+  });
   routeSvg.innerHTML = s;
 }
 
@@ -897,6 +905,12 @@ if (location.hash === '#selftest') {
     var anyFm = PRESETS.filter(function (p) { return p.osc.some(function (o) { return o.fm && o.wave; }); });
     applyPreset(anyFm[0]); syncUI(); out.fmPreset = anyFm[0].name;
     out.dottedDrops = routeSvg.innerHTML.split('stroke-dasharray:1 4').length - 1;
+    var keepR = JSON.stringify(state.osc);
+    out.fmCases = [[false, false], [true, false], [true, true], [false, true]].map(function (c) {
+      state.osc.forEach(function (o, i) { if (i % 3) o.fm = false; }); state.osc[1].fm = c[0]; state.osc[2].fm = c[1]; drawRoutes();
+      return (c[0] ? 'ring1' : '-') + '/' + (c[1] ? 'ring2' : '-') + ' live:' + [0, 1, 2].filter(function (i) { return !oscDead(i); }).map(function (i) { return i + 1; }).join(',') + ' dotted:' + (routeSvg.innerHTML.split('stroke-dasharray:1 4').length - 1);
+    });
+    state.osc = JSON.parse(keepR); drawRoutes();
     out.land = { knobs: document.querySelectorAll('[role="slider"]').length, buttons: document.querySelectorAll('button').length, W: GEO.W, H: GEO.H };
     ui.osc[1].g.g.click(); out.waveCycled = state.osc[1].wave;
     build('port', 1200); out.port = { knobs: document.querySelectorAll('[role="slider"]').length, buttons: document.querySelectorAll('button').length, W: GEO.W, H: GEO.H, dotted: routeSvg.innerHTML.split('stroke-dasharray:1 4').length - 1 };
