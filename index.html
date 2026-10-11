@@ -509,7 +509,7 @@ function geometry(lk, H) {
     // and the Oscilloscope feeds the Spectrum from the notch wall, last in the chain.
     var lL = oscY - 30, lR = lL + BG, nt = G.ctl[1] + G.ctl[3] + 10, wx = G.ctl[0] - 6, ax = G.ctl[0] + 8, aw = CW - 8;
     G.notch = [wx, nt, sX + fw0, topB];
-    G.ana = [ax, nt + 22, aw, topB - 66 - (nt + 22)];
+    G.ana = [ax, nt + 22, sX + fw0 - ax, topB - 66 - (nt + 22)];   // right border on the line of the frame's right border
     var yE = [topB - 30, topB - 42], ym = G.ana[1] + Math.round(G.ana[3] / 2), yS = [ym + 6, ym - 6];
     var xR = xs[5] + w - 34, xL = xR - BG;   // the Y lane rises into Effects on the line of OSC 6's drop; X runs BG to its left
     G.drops = xs.map(function (x, i) { return 'M' + (x + w - 34) + ' ' + oscY + 'V' + (i < 3 ? lL : lR); });
