@@ -265,21 +265,21 @@ var E = {
           var sum = y0 * this.mix[i0] + y1 * this.mix[i1] + y2 * this.mix[i2];
           if (g === 0) bus0 = sum; else bus1 = sum;
         }
-        // Effects chain (the tone always passes through it; bypassed stages are skipped).
         L = bus0; R = bus1;
-        if (!by.filter) { L = biq(this.fs[0], fc, L); R = biq(this.fs[1], fc, R); }
-        if (!by.bandpass) { L = biq(this.bs[0], bc, L); R = biq(this.bs[1], bc, R); }
-        if (sat > 0) { L = L * (1 - smix) + Math.tanh(2.5 * clamp(L * drive, -1, 1)) * smix; R = R * (1 - smix) + Math.tanh(2.5 * clamp(R * drive, -1, 1)) * smix; }
-        this.cb[0][this.cw] = L; this.cb[1][this.cw] = R;
-        if (nv) {
-          var wl = 0, wr = 0;
-          for (c = 0; c < nv; c++) { var dl = (0.02 + 0.003 * Math.sin(TAU * this.cph[c])) * sr; wl += rd(this.cb[0], this.cw - dl); wr += rd(this.cb[1], this.cw - dl); }
-          L += wl * vg * 0.6; R += wr * vg * 0.6;
-        }
-        for (c = 0; c < 7; c++) { this.cph[c] += (0.2 + c * 0.09) / sr; if (this.cph[c] >= 1) this.cph[c] -= 1; }
-        if (++this.cw >= cn) this.cw = 0;
-        if (!(L === L) || !(R === R)) { L = 0; R = 0; this.init(sr); }
       } else { L = inL[k]; R = inR[k]; }
+      // Effects chain: every source (tone, mic, line, file) passes through it; bypassed stages are skipped.
+      if (!by.filter) { L = biq(this.fs[0], fc, L); R = biq(this.fs[1], fc, R); }
+      if (!by.bandpass) { L = biq(this.bs[0], bc, L); R = biq(this.bs[1], bc, R); }
+      if (sat > 0) { L = L * (1 - smix) + Math.tanh(2.5 * clamp(L * drive, -1, 1)) * smix; R = R * (1 - smix) + Math.tanh(2.5 * clamp(R * drive, -1, 1)) * smix; }
+      this.cb[0][this.cw] = L; this.cb[1][this.cw] = R;
+      if (nv) {
+        var wl = 0, wr = 0;
+        for (c = 0; c < nv; c++) { var dl = (0.02 + 0.003 * Math.sin(TAU * this.cph[c])) * sr; wl += rd(this.cb[0], this.cw - dl); wr += rd(this.cb[1], this.cw - dl); }
+        L += wl * vg * 0.6; R += wr * vg * 0.6;
+      }
+      for (c = 0; c < 7; c++) { this.cph[c] += (0.2 + c * 0.09) / sr; if (this.cph[c] >= 1) this.cph[c] -= 1; }
+      if (++this.cw >= cn) this.cw = 0;
+      if (!(L === L) || !(R === R)) { L = 0; R = 0; this.init(sr); }
       this.sL[this.sw] = L; this.sR[this.sw] = R; this.sw = (this.sw + 1) & SN1; this.total++;
       outL[k] = L; outR[k] = R;
     }
@@ -288,7 +288,8 @@ var E = {
 
 // ---------------------------------------------------------------- audio graph
 // Tone: engine -> sink (0.2, 0 when muted) -> fatigue guard (LP 5 kHz, low shelf -12 dB at 2 kHz, limiter) -> speakers.
-// Mic and Line are analysed but not played (silent, as in the original); a File plays directly.
+// Every source runs through the Effects. Mic and Line are analysed but not played (silent, as in the original, so no
+// feedback); a File is heard after the Effects at unity gain (fileOut, no fatigue guard).
 var A = { ctx: null, node: null, sink: null, fileOut: null, live: null, liveSrc: null, file: null, running: false };
 function ensureAudio() {
   if (A.ctx) return;
@@ -306,14 +307,14 @@ function ensureAudio() {
   var lim = A.ctx.createDynamicsCompressor(); lim.threshold.value = -24; lim.ratio.value = 20; lim.knee.value = 0;
   A.fileOut = A.ctx.createGain();
   A.node.connect(A.sink); A.sink.connect(lpf); lpf.connect(shelf); shelf.connect(lim); lim.connect(A.ctx.destination);
-  A.fileOut.connect(A.ctx.destination);
+  A.node.connect(A.fileOut); A.fileOut.connect(A.ctx.destination);
   setGain();
 }
 function setGain() {
   if (!A.ctx) return;
   var t = A.ctx.currentTime;
   A.sink.gain.setTargetAtTime(!state.mute && state.src === 'tone' ? 0.2 : 0, t, 0.02);
-  A.fileOut.gain.setTargetAtTime(state.mute ? 0 : 1, t, 0.02);
+  A.fileOut.gain.setTargetAtTime(!state.mute && state.src === 'file' ? 1 : 0, t, 0.02);
 }
 function play() { ensureAudio(); A.ctx.resume(); A.running = true; refreshTransport(); }
 function stop() { if (A.ctx) A.ctx.suspend(); A.running = false; refreshTransport(); }
@@ -323,7 +324,7 @@ function dropSource() {
   if (A.file) { try { A.file.stop(); } catch (e) { } A.file.disconnect(); A.file = null; }
 }
 function setSource(kind) {
-  if (kind === 'tone') { dropSource(); state.src = 'tone'; ui.src.select(0); setGain(); return; }
+  if (kind === 'tone') { dropSource(); state.src = 'tone'; ui.src.select(0); setGain(); drawRoutes(); return; }
   if (kind === 'file') { document.getElementById('fileIn').click(); return; }
   play();
   var get = kind === 'mic'
@@ -334,7 +335,7 @@ function setSource(kind) {
   get().then(function (s) {
     if (!s.getAudioTracks().length) { s.getTracks().forEach(function (t) { t.stop(); }); flash(ui.src.keys[idx]); return; }
     dropSource(); A.live = s; A.liveSrc = A.ctx.createMediaStreamSource(s); A.liveSrc.connect(A.node);
-    state.src = kind; ui.src.select(idx); setGain();
+    state.src = kind; ui.src.select(idx); setGain(); drawRoutes();
   }).catch(function () { flash(ui.src.keys[idx]); });
 }
 document.getElementById('fileIn').addEventListener('change', function (e) {
@@ -344,8 +345,8 @@ document.getElementById('fileIn').addEventListener('change', function (e) {
   f.arrayBuffer().then(function (buf) { return A.ctx.decodeAudioData(buf); }).then(function (b) {
     dropSource();
     var s = A.ctx.createBufferSource(); s.buffer = b; s.loop = true;
-    s.connect(A.node); s.connect(A.fileOut); s.start();
-    A.file = s; state.src = 'file'; ui.src.select(3); setGain();
+    s.connect(A.node); s.start();
+    A.file = s; state.src = 'file'; ui.src.select(3); setGain(); drawRoutes();
   }).catch(function () { flash(ui.src.keys[3]); });
 });
 
@@ -487,49 +488,60 @@ function flash(k) { var s = k.state; k.set('rec'); setTimeout(function () { k.se
 var RING_OSC = [1, 2, 4, 5];   // the chord layer each FM ring belongs to: it modulates the oscillator to its left
 var BG = 12;                   // spacing between the L and R signal lines
 function geometry(lk, H) {
-  var G = { lk: lk, H: H };
+  // Outer margin M (8) on the sides and bottom, MT (14) at the top to clear the nameplates; CC = beam-control column width.
+  var G = { lk: lk, H: H }, M = 8, MT = 14, CC = 64;
+  var up = function (xx, yy) { return 'M' + xx + ' ' + yy + 'l-4 6h8z'; }, left = function (xx, yy) { return 'M' + xx + ' ' + yy + 'l6 -4v8z'; },
+      right = function (xx, yy) { return 'M' + xx + ' ' + yy + 'l-6 -4v8z'; },
+      down = function (xx, yy) { return 'M' + xx + ' ' + yy + 'l-4 -6h8z'; };
   if (lk === 'land') {
-    // 1440 x 1080: the Oscilloscope frame is as tall as the space above the osc row, with the beam bay carved into its bottom
-    // edge; the square screen above the bay sets the frame width, and the column beside the analyser keeps what is left.
-    var oscH = 140, oscY = H - 24 - oscH, top = 36, topB = oscY - 52, T = topB - top, fh = 182, hb = 74;
-    var bz = T - 20 - 10 - hb, sw = bz + 36;
-    var ax = 32 + sw + 24, aw = 140, colX = ax + aw + 24, cw = 1408 - colX;
-    var xs = [32, 260, 488, 764, 992, 1220], w = 188;
-    G.W = 1440; G.scope = [32, top, sw, T]; G.bez = [50, top + 20, bz]; G.bay = [50, top + 20 + bz + 10, bz, hb + 1, false];
-    G.ana = [ax, top, aw, T];
-    G.sd = [colX, top, cw, T - fh - 16]; G.fx = [colX, topB - fh, cw, fh];
-    G.osc = xs.map(function (x) { return [x, oscY, w, oscH]; }); G.oscRow = true;
-    G.rings = [[240, oscY + 30], [468, oscY + 30], [972, oscY + 30], [1200, oscY + 30]]; G.ringGap = 20;
-    // L and R stay BG (12 px) apart wherever they enter a module; R runs above L so the two never cross.
-    var fx = G.fx, yL = fx[1] + Math.round(fx[3] * 0.55), yR = yL - BG, lL = oscY - 30, lR = lL + BG, sR = 32 + sw;
+    // 1440 x 1080. Oscilloscope frame (square screen + control column), analyser, then Source & Display over Effects.
+    // The frame is as tall as the screen needs; the osc row takes the height that is left.
+    var aw = 116, g = 14, cw = 374, fh = 182;
+    var fw0 = 1440 - 2 * M - g - aw - g - cw, bz = fw0 - 18 - 12 - CC - 12, T = bz + 36;
+    var topB = MT + T, oscY = topB + 52, oscH = H - M - oscY, ax = M + fw0 + g, colX = ax + aw + g;
+    G.W = 1440; G.scope = [M, MT, fw0, T]; G.bez = [M + 18, MT + 20, bz]; G.ctl = [M + 18 + bz + 12, MT + 20, CC, bz];
+    G.ana = [ax, MT, aw, T];
+    G.sd = [colX, MT, cw, T - fh - 16]; G.fx = [colX, topB - fh, cw, fh];
+    var w = 200, xs = [M, M + 240, M + 480, M + 744, M + 984, M + 1224];   // 6 x 200: 40 between modules, 64 between X and Y
+    G.osc = xs.map(function (x) { return [x, oscY, w, oscH]; }); G.oscRow = true; G.oscGlass = oscH - 96;
+    G.rings = [0, 1, 3, 4].map(function (i) { return [xs[i] + w + 20, oscY + 14 + G.oscGlass / 2]; }); G.ringGap = 20;
+    // L and R stay BG (12 px) apart wherever they enter a module; the lanes rise straight into the bottom of Effects
+    // (R further right, so the two never cross), then run left through the analyser into the Oscilloscope frame.
+    var fx = G.fx, yL = fx[1] + Math.round(fx[3] * 0.55), yR = yL - BG, lL = oscY - 30, lR = lL + BG, sR = M + fw0;
+    var xL = colX + cw - 60, xR = xL + BG;
     G.drops = xs.map(function (x, i) { return 'M' + (x + w - 34) + ' ' + oscY + 'V' + (i < 3 ? lL : lR); });
     G.dropX = xs.map(function (x) { return x + w - 34; }); G.laneY = [lL, lR];
     G.busTail = [
-      'H1414V' + yL + 'H1415M' + colX + ' ' + yL + 'H' + (ax + aw + 7) + 'M' + ax + ' ' + yL + 'H' + (sR + 7),
-      'H' + (1414 + BG) + 'V' + yR + 'H1415M' + colX + ' ' + yR + 'H' + (ax + aw + 7) + 'M' + ax + ' ' + yR + 'H' + (sR + 7)];
-    var lh = function (xx, yy) { return 'M' + xx + ' ' + yy + 'l6 -4v8z'; };
-    G.heads = [lh(1409, yL) + lh(ax + aw + 1, yL) + lh(sR + 1, yL), lh(1409, yR) + lh(ax + aw + 1, yR) + lh(sR + 1, yR)];
+      'H' + xL + 'V' + (topB + 7) + 'M' + colX + ' ' + yL + 'H' + (ax + aw + 7) + 'M' + ax + ' ' + yL + 'H' + (sR + 7),
+      'H' + xR + 'V' + (topB + 7) + 'M' + colX + ' ' + yR + 'H' + (ax + aw + 7) + 'M' + ax + ' ' + yR + 'H' + (sR + 7)];
+    G.heads = [up(xL, topB + 1) + left(ax + aw + 1, yL) + left(sR + 1, yL), up(xR, topB + 1) + left(ax + aw + 1, yR) + left(sR + 1, yR)];
+    // External input (Mic, Line, File): Source & Display feeds Effects directly below it.
+    var sdB = G.sd[1] + G.sd[3], fxT = G.fx[1], xi = colX + cw - 100;
+    G.inPaths = ['M' + xi + ' ' + sdB + 'V' + (fxT - 7), 'M' + (xi + BG) + ' ' + sdB + 'V' + (fxT - 7)];
+    G.inHeads = [down(xi, fxT - 1), down(xi + BG, fxT - 1)];
   } else {
-    // 900 x 1200: the Oscilloscope frame (548 wide) has the beam bay carved into its right edge; Effects under it, the analyser
-    // and Source & Display in the right column, the osc rows below Effects.
-    var bw = 80, bz = 548 - 18 - 10 - bw, sh = bz + 36, fy = 36 + sh + 24, fh = 182;
-    var laneL = fy + fh + 28, r1 = laneL + 33, laneR = r1 + 168 + 28, r2 = laneR + 33, px = [32, 210, 388];
-    G.W = 900; G.scope = [32, 36, 548, sh]; G.bez = [50, 56, bz]; G.bay = [50 + bz + 10, 56, bw + 1, 400, true];
-    G.ana = [620, 36, 248, sh];
-    G.fx = [32, fy, 500, fh]; G.sd = [620, fy, 248, H - 24 - fy];
-    G.osc = [[32, r1], [210, r1], [388, r1], [32, r2], [210, r2], [388, r2]].map(function (p) { return [p[0], p[1], 144, 168]; }); G.oscRow = false;
-    G.rings = [[193, r1 + 26], [371, r1 + 26], [193, r2 + 26], [371, r2 + 26]]; G.ringGap = 17;
-    // Buses climb the gap right of the osc rows into Effects (R outer and higher, so they never cross),
-    // then Effects feeds the scope above it and the scope feeds the analyser.
-    var yL = fy + 98, yR = yL - BG, sb = 36 + sh, yA = 488;   // sb: scope frame bottom; yA: L into the analyser, below the bay (R is BG above)
-    G.drops = [0, 1, 2, 3, 4, 5].map(function (i) { var x = px[i % 3] + 90; return i < 3 ? 'M' + x + ' ' + r1 + 'V' + laneL : 'M' + x + ' ' + r2 + 'V' + laneR; });
-    var up = function (xx, yy) { return 'M' + xx + ' ' + yy + 'l-4 6h8z'; }, left = function (xx, yy) { return 'M' + xx + ' ' + yy + 'l6 -4v8z'; },
-        right = function (xx, yy) { return 'M' + xx + ' ' + yy + 'l-6 -4v8z'; };
-    G.dropX = [0, 1, 2, 3, 4, 5].map(function (i) { return px[i % 3] + 90; }); G.laneY = [laneL, laneR];
+    // 900 x 1200. Oscilloscope frame (square screen + control column) beside the analyser; Effects under the frame,
+    // Source & Display under the analyser; the osc rows below Effects, leaving a channel on their right for the lanes.
+    var rw = 248, gp = 16, fw1 = 900 - 2 * M - gp - rw, bz1 = fw1 - 18 - 12 - CC - 12, T1 = bz1 + 36, rx = M + fw1 + gp;
+    var fy = MT + T1 + 24, fh1 = 182, mw = 172, mg = 32, px = [M, M + mw + mg, M + 2 * (mw + mg)];
+    var laneL = fy + fh1 + 20, r1 = laneL + 22, laneR = r1 + 168 + 20, r2 = laneR + 24, sb = MT + T1, yA = MT + T1 - 40;
+    G.W = 900; G.scope = [M, MT, fw1, T1]; G.bez = [M + 18, MT + 20, bz1]; G.ctl = [M + 18 + bz1 + 12, MT + 20, CC, bz1];
+    G.ana = [rx, MT, rw, T1]; G.fx = [M, fy, fw1, fh1]; G.sd = [rx, fy, rw, H - M - fy];
+    G.osc = [[px[0], r1], [px[1], r1], [px[2], r1], [px[0], r2], [px[1], r2], [px[2], r2]].map(function (p) { return [p[0], p[1], mw, 168]; }); G.oscRow = false;
+    G.rings = [[px[0] + mw + mg / 2, r1 + 26], [px[1] + mw + mg / 2, r1 + 26], [px[0] + mw + mg / 2, r2 + 26], [px[1] + mw + mg / 2, r2 + 26]]; G.ringGap = mg / 2;
+    // Lanes rise in the channel right of the osc rows into the bottom of Effects (R further right, so they never cross);
+    // Effects feeds the Oscilloscope above it, and the Oscilloscope feeds the analyser (below the control column).
+    var xL = px[2] + mw + 20, xR = xL + BG, fb = fy + fh1;
+    G.drops = [0, 1, 2, 3, 4, 5].map(function (i) { var x = px[i % 3] + Math.round(mw * 0.6); return i < 3 ? 'M' + x + ' ' + r1 + 'V' + laneL : 'M' + x + ' ' + r2 + 'V' + laneR; });
+    G.dropX = [0, 1, 2, 3, 4, 5].map(function (i) { return px[i % 3] + Math.round(mw * 0.6); }); G.laneY = [laneL, laneR];
     G.busTail = [
-      'H548V' + yL + 'H539M270 ' + fy + 'V' + (sb + 7) + 'M580 ' + yA + 'H614',
-      'H' + (548 + BG) + 'V' + yR + 'H539M' + (270 + BG) + ' ' + fy + 'V' + (sb + 7) + 'M580 ' + (yA - BG) + 'H614'];
-    G.heads = [left(533, yL) + up(270, sb + 1) + right(620, yA), left(533, yR) + up(270 + BG, sb + 1) + right(620, yA - BG)];
+      'H' + xL + 'V' + (fb + 7) + 'M270 ' + fy + 'V' + (sb + 7) + 'M' + (M + fw1) + ' ' + yA + 'H' + (rx - 6),
+      'H' + xR + 'V' + (fb + 7) + 'M' + (270 + BG) + ' ' + fy + 'V' + (sb + 7) + 'M' + (M + fw1) + ' ' + (yA - BG) + 'H' + (rx - 6)];
+    G.heads = [up(xL, fb + 1) + up(270, sb + 1) + right(rx, yA), up(xR, fb + 1) + up(270 + BG, sb + 1) + right(rx, yA - BG)];
+    // External input (Mic, Line, File): Source & Display feeds Effects across the gap to its left.
+    var fr = M + fw1, yi = fy + 52;
+    G.inPaths = ['M' + rx + ' ' + yi + 'H' + (fr + 7), 'M' + rx + ' ' + (yi - BG) + 'H' + (fr + 7)];
+    G.inHeads = [left(fr + 1, yi), left(fr + 1, yi - BG)];
   }
   return G;
 }
@@ -550,7 +562,7 @@ function build(lk, H) {
   scope = el('canvas', 'position:absolute;inset:0;width:100%;height:100%', scrIn);
   scope.cssW = bs - 24; scope.width = scope.height = scope.cssW * 2;
   sx = scope.getContext('2d'); sx.fillStyle = '#050406'; sx.fillRect(0, 0, scope.width, scope.height);
-  buildScopeBay(G);
+  buildScopeCtl(G);
 
   // Stereo spectrum analyser: L to the left of the centre line, R to the right, frequency rising up the strip.
   var a = G.ana;
@@ -578,12 +590,12 @@ function buildOscillators(G) {
     var x = p[0], y = p[1], w = p[2], main = i % 3 === 0, col = i < 3 ? P.X : P.Y;
     var O = function () { return state.osc[i]; };
     sec(x, y, w, p[3], (main ? 'Osc ' + (i + 1) + '   ' + (i < 3 ? 'X-L' : 'Y-R') : 'Osc ' + (i + 1)), main ? { line: col, tab: col } : { line: col, tab: P.tabSub, tabInk: col, tabLine: col });
-    var g = glass(x + 10, y + 14, w - 20, G.oscRow ? 32 : 24, 'Oscillator ' + (i + 1));
+    var g = glass(x + 10, y + 14, w - 20, G.oscRow ? G.oscGlass : 24, 'Oscillator ' + (i + 1));
     g.g.style.cursor = 'pointer';
     g.g.title = 'Click: Off, Sine, Triangle, Sawtooth, Square';
     g.g.addEventListener('click', function () { var o = state.osc[i]; o.wave = (o.wave + 1) % 5; drawWave(i); drawRoutes(); });
-    var pos = G.oscRow ? [0, 1, 2, 3].map(function (k) { return [x + 32 + k * (w - 64) / 3, y + 84]; })
-                       : [[x + 44, y + 70], [x + 100, y + 70], [x + 44, y + 128], [x + 100, y + 128]];
+    var pos = G.oscRow ? [0, 1, 2, 3].map(function (k) { return [x + 32 + k * (w - 64) / 3, y + p[3] - 44]; })
+                       : [[x + Math.round(w * 0.3), y + 70], [x + Math.round(w * 0.7), y + 70], [x + Math.round(w * 0.3), y + 128], [x + Math.round(w * 0.7), y + 128]];
     var ksz = G.oscRow ? 22 : 20;
     var ks = main
       ? [knob(pos[0][0], pos[0][1], ksz, 'Gain', O, 'gain', PD.mgain), knob(pos[1][0], pos[1][1], ksz, 'Pitch', O, 'freq', PD.freq),
@@ -616,30 +628,22 @@ function buildOscillators(G) {
 
 // Source & Display: transport, Mute / Freeze / Hold, input, display mode, trace knobs, then the preset list in what is left.
 // Wide (landscape column): one row of six keys and five knobs in a row. Narrow (portrait column): 3 + 3 keys, 3 + 2 knobs.
-// Beam controls in a bay carved into the Oscilloscope frame: Output (XY / Wave, unlabelled), Grid, Glow, Hue, Hue Spd,
-// Persist, Hold. Landscape: a strip along the bottom edge; portrait: a column down the right edge. The bay is drawn over the
-// frame's border so the frame outline steps in around it.
-function buildScopeBay(G) {
-  var b = G.bay, x = b[0], y = b[1], w = b[2], h = b[3], down = b[4];
-  el('div', at(x, y, w, h) + ';box-sizing:border-box;border:1px solid ' + P.inkMute + ';' + (down ? 'border-right:none;border-radius:4px 0 0 4px' : 'border-bottom:none;border-radius:4px 4px 0 0') +
-    ';background:#201f22;box-shadow:inset 0 2px 5px rgba(0,0,0,0.4);pointer-events:none');
-  var outK = function (kx, ky) { ui.out = key(kx, ky, 56, 50, '', null, { onClick: function () { state.mode = state.mode === 'xy' ? 'waveform' : 'xy'; syncOut(); } }); };
-  var gridK = function (kx, ky) { ui.grid = key(kx, ky, 56, 22, 'Grid', 'on', { fs: 9, onClick: function () { state.grid = !state.grid; ui.grid.set(state.grid ? 'on' : 'off'); } }); };
-  var glowK = function (kx, ky) { ui.glow = key(kx, ky, 56, 22, 'Glow', 'on', { fs: 9, onClick: function () { state.glow = !state.glow; ui.glow.set(state.glow ? 'on' : 'off'); } }); };
-  // Hue and Hue Spd labels take the beam's colour; Persist and Hold glow with the trail length (see beamLabels).
-  var Sg = function () { return state; }, DK = [['Hue', 'hue'], ['Hue Spd', 'hueSpeed'], ['Persist', 'persistence'], ['Hold', 'hold']];
-  ui.hueLabs = []; ui.trailKnobs = [];
-  var kn = function (k, kx, ky) { var n = knob(kx, ky, 22, DK[k][0], Sg, DK[k][1], PD[DK[k][1]], { fs: 8 }); (k < 2 ? ui.hueLabs : ui.trailKnobs).push(k < 2 ? n.lab : n); };
-  if (!down) {
-    var x0 = x + (w - (56 + 12 + 56 + 28 + 4 * 80)) / 2;
-    outK(x0, y + 12); gridK(x0 + 68, y + 12); glowK(x0 + 68, y + 40);
-    for (var k = 0; k < 4; k++) kn(k, x0 + 152 + 40 + 80 * k, y + 33);
-  } else {
-    var cx = x + (w - 1) / 2;
-    outK(cx - 28, y + 14); gridK(cx - 28, y + 76); glowK(cx - 28, y + 104);
-    for (var j = 0; j < 4; j++) kn(j, cx, y + 166 + 64 * j);
-  }
-  beamLabCol = ''; trailGlowKey = '';
+// Beam controls in a column inside the Oscilloscope frame, between the screen and the Spectrum: Output (XY / Wave,
+// unlabelled), Grid, Glow, then Persist, Hold, Hue, Hue Spd. Hue labels take the beam's colour; Persist and Hold labels
+// brighten toward white as they are turned up (see beamLabels).
+function buildScopeCtl(G) {
+  var c = G.ctl, x = c[0], y = c[1], w = c[2], cx = x + w / 2;
+  el('div', at(x - 6, y, 1, c[3]) + ';background:' + P.inkMute + ';opacity:0.5');
+  ui.out = key(cx - 28, y, 56, 50, '', null, { onClick: function () { state.mode = state.mode === 'xy' ? 'waveform' : 'xy'; syncOut(); } });
+  ui.grid = key(cx - 28, y + 62, 56, 22, 'Grid', 'on', { fs: 9, onClick: function () { state.grid = !state.grid; ui.grid.set(state.grid ? 'on' : 'off'); } });
+  ui.glow = key(cx - 28, y + 90, 56, 22, 'Glow', 'on', { fs: 9, onClick: function () { state.glow = !state.glow; ui.glow.set(state.glow ? 'on' : 'off'); } });
+  var Sg = function () { return state; }, DK = [['Persist', 'persistence'], ['Hold', 'hold'], ['Hue', 'hue'], ['Hue Spd', 'hueSpeed']];
+  ui.hueLabs = []; ui.trailLabs = [];
+  DK.forEach(function (d, k) {
+    var n = knob(cx, y + 152 + 64 * k, 22, d[0], Sg, d[1], PD[d[1]], { fs: 8 });
+    if (k < 2) ui.trailLabs.push({ lab: n.lab, key: d[1] }); else ui.hueLabs.push(n.lab);
+  });
+  beamLabCol = ''; trailLabKey = '';
 }
 // Output key icons show the mode a click switches to: the initial XY figure (2:3 Lissajous) while in Wave mode, and the
 // stereo Wave (sine over square) while in XY mode.
@@ -665,15 +669,16 @@ function buildSD(m) {
   // Transport and state keys in one row: Play, Stop | Mute, Freeze.
   var tk = wide ? 72 : 48, tg = wide ? 8 : 6, tx4 = [0, tk + tg, iw - 2 * tk - tg, iw - tk];
   var T = function (j, label, led, o) { return key(x + 16 + tx4[j], y + 18, tk, 28, label, led, o); };
-  ui.playK = T(0, '', 'off', { tint: 'red', glyph: '▶', fs: 13, below: 'Play', aria: 'Play', onClick: play });
-  ui.stopK = T(1, '', 'off', { tint: 'red', glyph: '■', fs: 12, below: 'Stop', aria: 'Stop', onClick: stop });
-  ui.mute = T(2, 'Mute', 'off', { tint: 'blue', below: 'Audio', onClick: function () { state.mute = !state.mute; ui.mute.set(state.mute ? 'rec' : 'off'); setGain(); } });
-  ui.freeze = T(3, 'Freeze', 'off', { tint: 'blue', below: 'Display', onClick: function () { state.freeze = !state.freeze; ui.freeze.set(state.freeze ? 'on' : 'off'); } });
+  ui.playK = T(0, '', 'off', { tint: 'red', glyph: '▶', fs: 13, aria: 'Play', onClick: play });
+  ui.stopK = T(1, '', 'off', { tint: 'red', glyph: '■', fs: 12, aria: 'Stop', onClick: stop });
+  ui.mute = T(2, 'Mute', 'off', { tint: 'blue', aria: 'Mute audio', onClick: function () { state.mute = !state.mute; ui.mute.set(state.mute ? 'rec' : 'off'); setGain(); } });
+  ui.freeze = T(3, 'Freeze', 'off', { tint: 'blue', aria: 'Freeze display', onClick: function () { state.freeze = !state.freeze; ui.freeze.set(state.freeze ? 'on' : 'off'); } });
 
   // Input: Tone, Mic / Line, File as a 2 x 2 cluster under its label (beam controls live in the Oscilloscope bay).
-  var ly0 = y + 74, r0 = y + 88, r1 = y + 116, ik = Math.min(96, (iw - 6) / 2), ix = x + 16 + (iw - 2 * ik - 6) / 2;
+  var ly0 = y + 60, r0 = y + 74, r1 = y + 102, ik = Math.min(96, (iw - 6) / 2), ix = x + 16 + (iw - 2 * ik - 6) / 2;
   cl(ix + ik + 3, ly0, 2 * ik + 6, 'Input', PRINT(8));
-  ui.src = radio([[ix, r0], [ix + ik + 6, r0], [ix, r1], [ix + ik + 6, r1]], ik, 22, ['Tone', 'Mic', 'Line', 'File'], function (i) { setSource(['tone', 'mic', 'line', 'file'][i]); });
+  // Keys stay in Tone, Mic, Line, File order (setSource indices); placed as Tone, File / Line, Mic, so File sits above Mic.
+  ui.src = radio([[ix, r0], [ix + ik + 6, r1], [ix, r1], [ix + ik + 6, r0]], ik, 22, ['Tone', 'Mic', 'Line', 'File'], function (i) { setSource(['tone', 'mic', 'line', 'file'][i]); });
 
   // Preset list: every preset is a line; tap or click one to select and load it, scroll with the wheel or a finger.
   var lx = x + 16, ly = r1 + 38, lw = iw, ny = y + h - 42, lh = ny - 10 - ly;
@@ -765,23 +770,28 @@ function routeLit() {
   return lit;
 }
 function drawRoutes() {
-  var G = GEO, s = '', lit = routeLit();
+  // With an external input (Mic, Line, File) the oscillators are not heard: their paths go grey and the Source & Display
+  // pair into Effects lights instead. The paths after Effects light whenever something feeds them.
+  var G = GEO, s = '', ext = state.src !== 'tone', lit = ext ? [false, false, false, false, false, false] : routeLit();
   var path = function (d, col, dotted, w) { return '<path d="' + d + '" style="fill:none;stroke:' + col + ';stroke-width:' + (w || 1.4) + ';stroke-linecap:round' + (dotted ? ';stroke-dasharray:1 4' : '') + '"></path>'; };
+  var fill = function (d, col) { return '<path d="' + d + '" style="fill:' + col + '"></path>'; };
   [0, 1].forEach(function (c) {
     var col = c ? P.Y : P.X, i0 = c * 3, first = i0;
     while (first < i0 + 3 && !lit[first]) first++;
-    if (first === i0 + 3) {
-      s += path('M' + G.dropX[i0] + ' ' + G.laneY[c] + G.busTail[c], P.idle, true, 1.6);
-      s += '<path d="' + G.heads[c] + '" style="fill:' + P.idle + '"></path>';
-      return;
+    var tail = G.busTail[c], cut = tail.indexOf('M'), lane = tail.slice(0, cut), after = tail.slice(cut);   // to Effects | after Effects
+    var hd = G.heads[c], hcut = hd.indexOf('z') + 1, laneHead = hd.slice(0, hcut), afterHeads = hd.slice(hcut);
+    var toneLive = first < i0 + 3, afterLive = toneLive || ext;
+    if (!toneLive) s += path('M' + G.dropX[i0] + ' ' + G.laneY[c] + lane, P.idle, true, 1.6) + fill(laneHead, P.idle);
+    else {
+      if (first > i0) s += path('M' + G.dropX[i0] + ' ' + G.laneY[c] + 'H' + G.dropX[first], P.idle, true, 1.6);
+      s += path('M' + G.dropX[first] + ' ' + G.laneY[c] + lane, col) + fill(laneHead, col);
     }
-    if (first > i0) s += path('M' + G.dropX[i0] + ' ' + G.laneY[c] + 'H' + G.dropX[first], P.idle, true, 1.6);
-    s += path('M' + G.dropX[first] + ' ' + G.laneY[c] + G.busTail[c], col);
-    s += '<path d="' + G.heads[c] + '" style="fill:' + col + '"></path>';
+    s += path(after, afterLive ? col : P.idle, !afterLive, afterLive ? 1.4 : 1.6) + fill(afterHeads, afterLive ? col : P.idle);
+    s += path(G.inPaths[c], ext ? col : P.idle, !ext, ext ? 1.4 : 1.6) + fill(G.inHeads[c], ext ? col : P.idle);
   });
   G.drops.forEach(function (d, i) { var dead = !lit[i]; s += path(d, dead ? P.idle : (i < 3 ? P.X : P.Y), dead, dead ? 1.6 : 1.4); });
   G.rings.forEach(function (r, li) {
-    var oi = RING_OSC[li], on = fmOn(oi);
+    var oi = RING_OSC[li], on = fmOn(oi) && !ext;
     s += path('M' + (r[0] - G.ringGap) + ' ' + r[1] + 'H' + (r[0] - 8) + 'M' + (r[0] + 8) + ' ' + r[1] + 'H' + (r[0] + G.ringGap), on ? (oi < 3 ? P.X : P.Y) : P.inkMute, false, on ? 1.6 : 1.2);
   });
   routeSvg.innerHTML = s;
@@ -989,25 +999,20 @@ function drawScope(dt) {
 }
 
 // ---------------------------------------------------------------- run loop and window fit
-// The Hue and Hue Spd labels show the beam's current colour (Trace Hue advanced by Hue Speed). Persist and Hold glow in that
-// colour, more strongly the longer the trail they make together (frames for the trace to fade to 10%, on a log scale).
-// Restyled only when something changes.
-var beamLabCol = '', trailGlowKey = '';
-function trailAmount() {
-  var s = Math.pow(clamp(state.persistence), 1 / (state.hold + 1));
-  if (s >= 0.999) return 1;
-  var n = Math.log(0.1) / Math.log(Math.max(1e-6, s));
-  return clamp(Math.log(Math.max(1, n / 1.6)) / Math.log(250));
-}
+// The Hue and Hue Spd labels show the beam's current colour (Trace Hue advanced by Hue Speed). The Persist and Hold labels
+// go from the usual grey to bright white with their own knob position; nothing glows. Restyled only when something changes.
+var beamLabCol = '', trailLabKey = '';
 function beamLabels() {
   if (!ui.hueLabs) return;
   var h = Math.round(((state.hue + state.hueSpeed * realT) % 360 + 360) % 360), c = 'hsl(' + h + ',90%,60%)';
   if (c !== beamLabCol) { beamLabCol = c; ui.hueLabs.forEach(function (l) { l.style.color = c; }); }
-  var g = Math.round(trailAmount() * 50) / 50, gk = h + '/' + g;
-  if (gk === trailGlowKey) return;
-  trailGlowKey = gk;
-  var glow = g > 0 ? ',0 0 ' + (3 + 16 * g).toFixed(1) + 'px ' + (1 + 4 * g).toFixed(1) + 'px hsla(' + h + ',90%,60%,' + (0.2 + 0.7 * g).toFixed(2) + ')' : '';
-  ui.trailKnobs.forEach(function (k) { k.skirt.style.boxShadow = '0 0 0 1px #050505,0 6px 10px rgba(0,0,0,0.6)' + glow; });
+  var v = ui.trailLabs.map(function (t) { return Math.round(toV(PD[t.key], state[t.key]) * 40) / 40; }), vk = v.join('/');
+  if (vk === trailLabKey) return;
+  trailLabKey = vk;
+  ui.trailLabs.forEach(function (t, i) {
+    var f = v[i], ch = function (a) { return Math.round(a + (255 - a) * f); };
+    t.lab.style.color = 'rgb(' + ch(166) + ',' + ch(164) + ',' + ch(168) + ')';
+  });
 }
 var pL = new Float32Array(4096), pR = new Float32Array(4096), zero = new Float32Array(4096), lastT = 0;
 E.init(48000);
