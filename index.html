@@ -489,8 +489,8 @@ function flash(k) { var s = k.state; k.set('rec'); setTimeout(function () { k.se
 var RING_OSC = [1, 2, 4, 5];   // the chord layer each FM ring belongs to: it modulates the oscillator to its left
 var BG = 12;                   // spacing between the L and R signal lines
 function geometry(lk, H) {
-  // Outer margin M (8) on the sides and bottom, MT (14) at the top to clear the nameplates; CC = beam-control column width.
-  var G = { lk: lk, H: H }, M = 8, MT = 14, CC = 64;
+  // Outer margin M (8) on the sides and bottom, MT (14) at the top to clear the nameplates; CC = portrait beam-control column width.
+  var G = { lk: lk, H: H }, M = 8, MT = 14, CC = 48;
   var up = function (xx, yy) { return 'M' + xx + ' ' + yy + 'l-4 6h8z'; }, left = function (xx, yy) { return 'M' + xx + ' ' + yy + 'l6 -4v8z'; },
       right = function (xx, yy) { return 'M' + xx + ' ' + yy + 'l-6 -4v8z'; },
       down = function (xx, yy) { return 'M' + xx + ' ' + yy + 'l-4 -6h8z'; };
@@ -526,7 +526,8 @@ function geometry(lk, H) {
   } else {
     // 900 x 1200. Oscilloscope frame (square screen + control column) beside the analyser; Effects under the frame,
     // Source & Display under the analyser; the osc rows below Effects, leaving a channel on their right for the lanes.
-    var rw = 248, gp = 16, fw1 = 900 - 2 * M - gp - rw, bz1 = fw1 - 18 - 12 - CC - 12, T1 = bz1 + 36, rx = M + fw1 + gp;
+    // Screen 514 square; the thin control column (CC) leaves the rest of the width to the analyser / Source & Display column.
+    var gp = 16, bz1 = 514, fw1 = 18 + bz1 + 12 + CC + 12, rw = 900 - 2 * M - gp - fw1, T1 = bz1 + 36, rx = M + fw1 + gp;
     var fy = MT + T1 + 24, fh1 = 182, mw = 172, mg = 32, px = [M, M + mw + mg, M + 2 * (mw + mg)];
     // Each lane corridor (42 tall) has three tracks at 1/4, 1/2, 3/4; the lane takes the middle one, the one beside the
     // osc row below stays free for the drops to turn into the lane.
@@ -535,28 +536,28 @@ function geometry(lk, H) {
     G.ana = [rx, MT, rw, T1]; G.fx = [M, fy, fw1, fh1]; G.sd = [rx, fy, rw, H - M - fy];
     G.osc = [[px[0], r1], [px[1], r1], [px[2], r1], [px[0], r2], [px[1], r2], [px[2], r2]].map(function (p) { return [p[0], p[1], mw, 168]; }); G.oscRow = false;
     G.rings = [[px[0] + mw + mg / 2, r1 + 26], [px[1] + mw + mg / 2, r1 + 26], [px[0] + mw + mg / 2, r2 + 26], [px[1] + mw + mg / 2, r2 + 26]]; G.ringGap = mg / 2;
-    // Effects ends on the line of OSC 3's right border. Its right edge carries three pairs, evenly spaced: the output to the
-    // Oscilloscope (top: out, then up through the notch cut below the beam controls into the frame), the Source & Display
-    // input (middle), and the oscillator lanes (bottom: up the channel right of the osc rows, then in). Inner lines turn
-    // first, so nothing crosses. The Oscilloscope feeds the analyser from the same notch.
-    // Tracks: every corridor is split into three equal tracks at 1/4, 1/2, 3/4 of its width, and the track beside the module
-    // the pair turns at stays free. The channel between Effects and Source & Display: free track beside Effects, L and R on
-    // the other two (the lanes and the output share them; they never overlap in height). The notch holds two pairs, so it is
-    // split into two corridors: Oscilloscope -> analyser above, Effects -> Oscilloscope below, each with its bottom track free.
-    var fr = px[2] + mw, fb = fy + fh1, nt1 = G.ctl[1] + 458, wx1 = G.ctl[0] - 6, fbot = MT + T1;
+    // Effects spans the Oscilloscope frame's width (right borders aligned). The oscillator lanes rise in the channel right of
+    // the osc rows and enter Effects from below; Effects' output leaves its top straight up into the notch cut below the beam
+    // controls and turns into the frame; Source & Display feeds Effects across the gap at mid-height. The Oscilloscope feeds
+    // the analyser from the same notch. Inner lines turn first, so nothing crosses.
+    // Tracks: every corridor is split into three equal tracks at 1/4, 1/2, 3/4 of its width. Lane channel (OSC 3's right
+    // border to Source & Display): L and R on the two tracks under Effects, the third (past Effects' edge) free. Notch
+    // (column divider to the frame edge): the track beside the divider is free for the turn, L and R on the other two. The
+    // notch holds two pairs, so it is split into two corridors: Oscilloscope -> analyser above, Effects -> Oscilloscope
+    // below, each with its bottom track free.
+    var fr = M + fw1, oR = px[2] + mw, fb = fy + fh1, nt1 = G.ctl[1] + 458, wx1 = G.ctl[0] - 6, fbot = MT + T1;
     G.fx = [M, fy, fr - M, fh1];
-    G.notch = [wx1, nt1, M + fw1, fbot];
-    var pc = [0.25, 0.5, 0.75].map(function (f) { return Math.round(fy + fh1 * f); });
-    var yO = [pc[0] - 6, pc[0] + 6], yI = [pc[1] + 6, pc[1] - 6], yLn = [pc[2] + 6, pc[2] - 6];   // [L, R] per pair
-    var tA = (rx - fr) / 4, oX = [fr + 2 * tA, fr + 3 * tA], lX = oX;
+    G.notch = [wx1, nt1, fr, fbot];
+    var yI = [fy + fh1 / 2 + 6, fy + fh1 / 2 - 6];   // [L, R]
+    var tA = (rx - oR) / 4, lX = [oR + tA, oR + 2 * tA], tN = (fr - wx1) / 4, oX = [Math.round(wx1 + 2 * tN), Math.round(wx1 + 3 * tN)];
     var q = (fbot - nt1) / 8, yS1 = [nt1 + 2 * q, nt1 + q], yE1 = [nt1 + 6 * q, nt1 + 5 * q];
     G.drops = [0, 1, 2, 3, 4, 5].map(function (i) { var x = px[i % 3] + Math.round(mw * 0.6); return i < 3 ? 'M' + x + ' ' + r1 + 'V' + laneL : 'M' + x + ' ' + r2 + 'V' + laneR; });
     G.dropX = [0, 1, 2, 3, 4, 5].map(function (i) { return px[i % 3] + Math.round(mw * 0.6); }); G.laneY = [laneL, laneR];
     G.busTail = [0, 1].map(function (c) {
-      return 'H' + lX[c] + 'V' + yLn[c] + 'H' + (fr + 7) +
-        'M' + fr + ' ' + yO[c] + 'H' + oX[c] + 'V' + yE1[c] + 'H' + (wx1 + 7) + 'M' + wx1 + ' ' + yS1[c] + 'H' + (rx - 7);
+      return 'H' + lX[c] + 'V' + (fb + 7) +
+        'M' + oX[c] + ' ' + fy + 'V' + yE1[c] + 'H' + (wx1 + 7) + 'M' + wx1 + ' ' + yS1[c] + 'H' + (rx - 7);
     });
-    G.heads = [0, 1].map(function (c) { return left(fr + 1, yLn[c]) + left(wx1 + 1, yE1[c]) + right(rx, yS1[c]); });
+    G.heads = [0, 1].map(function (c) { return up(lX[c], fb + 1) + left(wx1 + 1, yE1[c]) + right(rx, yS1[c]); });
     // External input (Mic, Line, File): Source & Display feeds Effects across the gap to its left.
     G.inPaths = [0, 1].map(function (c) { return 'M' + rx + ' ' + yI[c] + 'H' + (fr + 7); });
     G.inHeads = [0, 1].map(function (c) { return left(fr + 1, yI[c]); });
@@ -655,11 +656,11 @@ function buildOscillators(G) {
 // Output and the knobs on a 64 px grid: Width, Persist, Hold / Gain, Hue, Hue Spd, centred in the window.
 function buildScopeCtl(G) {
   var c = G.ctl, x = c[0], y = c[1], w = c[2], cx = x + w / 2, two = w >= 120, ox = cx - 64;
-  var kx = two ? [ox + 4, ox + 68, ox + 68] : [cx - 28, cx - 28, cx - 28], ky = two ? [y, y, y + 28] : [y, y + 62, y + 90];
+  var kw = two ? 56 : Math.min(56, w - 4), kx = two ? [ox + 4, ox + 68, ox + 68] : [cx - kw / 2, cx - kw / 2, cx - kw / 2], ky = two ? [y, y, y + 28] : [y, y + 62, y + 90];
   el('div', at(x - 6, y, 1, c[3]) + ';background:' + P.inkMute + ';opacity:0.5');
-  ui.out = key(kx[0], ky[0], 56, 50, '', null, { onClick: function () { state.mode = state.mode === 'xy' ? 'waveform' : 'xy'; syncOut(); } });
-  ui.grid = key(kx[1], ky[1], 56, 22, 'Grid', 'on', { fs: 9, onClick: function () { state.grid = !state.grid; ui.grid.set(state.grid ? 'on' : 'off'); } });
-  ui.glow = key(kx[2], ky[2], 56, 22, 'Glow', 'on', { fs: 9, onClick: function () { state.glow = !state.glow; ui.glow.set(state.glow ? 'on' : 'off'); } });
+  ui.out = key(kx[0], ky[0], kw, 50, '', null, { onClick: function () { state.mode = state.mode === 'xy' ? 'waveform' : 'xy'; syncOut(); } });
+  ui.grid = key(kx[1], ky[1], kw, 22, 'Grid', 'on', { fs: 9, onClick: function () { state.grid = !state.grid; ui.grid.set(state.grid ? 'on' : 'off'); } });
+  ui.glow = key(kx[2], ky[2], kw, 22, 'Glow', 'on', { fs: 9, onClick: function () { state.glow = !state.glow; ui.glow.set(state.glow ? 'on' : 'off'); } });
   var Sg = function () { return state; }, DK = [['Width', 'lineWidth'], ['Persist', 'persistence'], ['Hold', 'hold'], ['Gain', 'gain'], ['Hue', 'hue'], ['Hue Spd', 'hueSpeed']];
   ui.hueLabs = []; ui.trailLabs = [];
   DK.forEach(function (d, k) {
