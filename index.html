@@ -533,10 +533,10 @@ function geometry(lk, H) {
     // Screen 514 square; the thin control column (CC) leaves the rest of the width to the analyser / Source & Display column.
     // Portrait controls: no divider; the column sits one track (12) right of the screen and the frame edge 5 px past the
     // buttons (CC = key width).
-    // OSC 4-6 sit one track (12) left of OSC 1-3 on the outer margin; everything else starts at ML, one track in.
-    var ML = M + BG, gp = 16, bz1 = 514, fw1 = 16 + bz1 + 12 + CC + 5, rw = 900 - ML - M - gp - fw1, T1 = 20 + bz1 + 16, rx = ML + fw1 + gp;
-    var lc = 40, fy = MT + T1 + gp, fh1 = H - M - fy - 2 * (168 + lc), mg = 32, mw = (rx - 2 * BG - ML - 2 * mg) / 3, px = [ML, ML + mw + mg, ML + 2 * (mw + mg)];
-    var pxr = [px[0], px[1], px[2], px[0] - BG, px[1] - BG, px[2] - BG];   // module x by osc index
+    // OSC 4-6 sit one track (12) right of OSC 1-3; the modules are sized so OSC 6 ends one track before OSC 4's path.
+    var ML = M, gp = 16, bz1 = 514, fw1 = 16 + bz1 + 12 + CC + 5, rw = 900 - ML - M - gp - fw1, T1 = 20 + bz1 + 16, rx = ML + fw1 + gp;
+    var lc = 40, fy = MT + T1 + gp, fh1 = H - M - fy - 2 * (168 + lc), mg = 32, mw = (rx - 3 * BG - ML - 2 * mg) / 3, px = [ML, ML + mw + mg, ML + 2 * (mw + mg)];
+    var pxr = [px[0], px[1], px[2], px[0] + BG, px[1] + BG, px[2] + BG];   // module x by osc index
     // Each lane corridor (40 tall) has three tracks at 1/4, 1/2, 3/4; the lane takes the middle one, the one beside the
     // osc row below stays free for the drops to turn into the lane. Effects takes the height that is left (194).
     var r1 = fy + fh1 + lc, r2 = r1 + 168 + lc, laneL = r1 - lc / 2, laneR = r2 - lc / 2;
@@ -549,7 +549,7 @@ function geometry(lk, H) {
     // Display input (middle), and the oscillator lanes (bottom: up the channel right of the osc rows, then in). Inner lines
     // turn first, so nothing crosses. The Oscilloscope feeds the analyser from the same notch.
     // Tracks: the landscape signal gap, BG (12) between lines and from the border, with one free track for turning. The
-    // vertical runs: L on the line of OSC 3's right border, R one track right of it, Source & Display one track further (the
+    // vertical runs: L on the line of OSC 6's right border, R one track right of it, Source & Display one track further (the
     // osc modules are sized to fit; the lanes and the output share these tracks, they never overlap in height). The notch
     // (72) holds Oscilloscope -> analyser at 12 / 24 from its top, a free track, then Effects -> Oscilloscope at 48 / 60
     // (12 above the frame bottom).
@@ -558,7 +558,7 @@ function geometry(lk, H) {
     G.notch = [wx1, nt1, ML + fw1, fbot];
     var pc = [0.25, 0.5, 0.75].map(function (f) { return Math.round(fy + fh1 * f); });
     var yO = [pc[0] - 6, pc[0] + 6], yI = [pc[1] + 6, pc[1] - 6], yLn = [pc[2] + 6, pc[2] - 6];   // [L, R] per pair
-    var oR = px[2] + mw, oX = [oR, oR + BG], lX = oX;
+    var oR = pxr[5] + mw, oX = [oR, oR + BG], lX = oX;
     var yS1 = [nt1 + 2 * BG, nt1 + BG], yE1 = [nt1 + 5 * BG, nt1 + 4 * BG];
     G.drops = [0, 1, 2, 3, 4, 5].map(function (i) { var x = pxr[i] + Math.round(mw * 0.6); return i < 3 ? 'M' + x + ' ' + r1 + 'V' + laneL : 'M' + x + ' ' + r2 + 'V' + laneR; });
     G.dropX = pxr.map(function (x) { return x + Math.round(mw * 0.6); }); G.laneY = [laneL, laneR];
