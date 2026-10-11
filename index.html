@@ -489,17 +489,20 @@ function flash(k) { var s = k.state; k.set('rec'); setTimeout(function () { k.se
 var RING_OSC = [1, 2, 4, 5];   // the chord layer each FM ring belongs to: it modulates the oscillator to its left
 var BG = 12;                   // spacing between the L and R signal lines
 function geometry(lk, H) {
-  // Outer margin M (8) on the sides and bottom, MT (14) at the top to clear the nameplates; CC = portrait beam-control column width.
-  var G = { lk: lk, H: H }, M = 8, MT = 14, CC = 48;
+  // Spacing (8 px grid): outer margin M (8) on the sides and bottom, MT (16) at the top to clear the nameplates; 16 between
+  // neighbouring windows; inside the Oscilloscope frame 16 from the screen / controls to the frame (20 at the top, under the
+  // nameplate), and the divider 8 right of the screen with the controls and the Spectrum 16 right of it (one left edge).
+  // Signal corridors are multiples of 8. CC = portrait beam-control column width.
+  var G = { lk: lk, H: H }, M = 8, MT = 16, CC = 48;
   var up = function (xx, yy) { return 'M' + xx + ' ' + yy + 'l-4 6h8z'; }, left = function (xx, yy) { return 'M' + xx + ' ' + yy + 'l6 -4v8z'; },
       right = function (xx, yy) { return 'M' + xx + ' ' + yy + 'l-6 -4v8z'; },
       down = function (xx, yy) { return 'M' + xx + ' ' + yy + 'l-4 -6h8z'; };
   if (lk === 'land') {
     // 1440 x 1080. Oscilloscope frame (square screen + a 202-wide control window, with the Spectrum in the notch below the
-    // controls), then a thin Source & Display over Effects. The osc row takes the height that is left (160).
-    var g = 14, fh = 248, CW = 202, bz = 810, T = bz + 36, fw0 = 18 + bz + 12 + CW + 12, cw = 1440 - 2 * M - fw0 - g;
-    var topB = MT + T, oscY = topB + 52, oscH = H - M - oscY, sX = M, colX = sX + fw0 + g;
-    G.W = 1440; G.scope = [sX, MT, fw0, T]; G.bez = [sX + 18, MT + 20, bz]; G.ctl = [sX + 18 + bz + 12, MT + 20, CW, 196]; G.fxStack = true;
+    // controls), then a thin Source & Display over Effects. The osc row takes the height that is left (162).
+    var g = 16, fh = 248, CW = 202, bz = 810, T = 20 + bz + 16, fw0 = 16 + bz + 8 + 16 + CW + 16, cw = 1440 - 2 * M - fw0 - g;
+    var topB = MT + T, oscY = topB + 48, oscH = H - M - oscY, sX = M, colX = sX + fw0 + g;
+    G.W = 1440; G.scope = [sX, MT, fw0, T]; G.bez = [sX + 16, MT + 20, bz]; G.ctl = [sX + 16 + bz + 24, MT + 20, CW, 196]; G.fxStack = true;
     G.sd = [colX, MT, cw, T - fh - 16]; G.fx = [colX, topB - fh, cw, fh];
     var w = 200, xs = [M, M + 240, M + 480, M + 744, M + 984, M + 1224];   // 6 x 200: 40 between modules, 64 between X and Y
     G.osc = xs.map(function (x) { return [x, oscY, w, oscH]; }); G.oscRow = true; G.oscGlass = oscH - 96;
@@ -507,11 +510,12 @@ function geometry(lk, H) {
     // The frame is notched below the controls; the Spectrum sits in the notch, with a strip left under it for the Effects
     // return. L and R stay BG (12 px) apart wherever they enter a module. The lanes rise straight into the bottom of Effects
     // (R further right, so the two never cross); Effects feeds the Oscilloscope across the strip at the bottom of the notch,
-    // and the Oscilloscope feeds the Spectrum from the notch wall, last in the chain.
-    var lL = oscY - 30, lR = lL + BG, nt = G.ctl[1] + G.ctl[3] + 10, wx = G.ctl[0] - 6, ax = G.ctl[0] + 8, aw = CW - 8;
+    // and the Oscilloscope feeds the Spectrum from the notch wall, last in the chain. The lane band (48) and the strip under
+    // the Spectrum (48) have three tracks each, the one beside the osc row / frame bottom free.
+    var lL = oscY - 36, lR = lL + BG, nt = G.ctl[1] + G.ctl[3] + 8, wx = G.ctl[0] - 16, ax = G.ctl[0];
     G.notch = [wx, nt, sX + fw0, topB];
-    G.ana = [ax, nt + 22, sX + fw0 - ax, topB - 66 - (nt + 22)];   // right border on the line of the frame's right border
-    var yE = [topB - 30, topB - 42], ym = G.ana[1] + Math.round(G.ana[3] / 2), yS = [ym + 6, ym - 6];
+    G.ana = [ax, nt + 16, sX + fw0 - ax, topB - 48 - (nt + 16)];   // right border on the line of the frame's right border
+    var yE = [topB - 24, topB - 36], ym = G.ana[1] + Math.round(G.ana[3] / 2), yS = [ym + 6, ym - 6];
     var xR = xs[5] + w - 34, xL = xR - BG;   // the Y lane rises into Effects on the line of OSC 6's drop; X runs BG to its left
     G.drops = xs.map(function (x, i) { return 'M' + (x + w - 34) + ' ' + oscY + 'V' + (i < 3 ? lL : lR); });
     G.dropX = xs.map(function (x) { return x + w - 34; }); G.laneY = [lL, lR];
@@ -527,12 +531,12 @@ function geometry(lk, H) {
     // 900 x 1200. Oscilloscope frame (square screen + control column) beside the analyser; Effects under the frame,
     // Source & Display under the analyser; the osc rows below Effects, leaving a channel on their right for the lanes.
     // Screen 514 square; the thin control column (CC) leaves the rest of the width to the analyser / Source & Display column.
-    var gp = 16, bz1 = 514, fw1 = 18 + bz1 + 12 + CC + 12, rw = 900 - 2 * M - gp - fw1, T1 = bz1 + 36, rx = M + fw1 + gp;
-    var fy = MT + T1 + 24, fh1 = 182, mw = 172, mg = 32, px = [M, M + mw + mg, M + 2 * (mw + mg)];
-    // Each lane corridor (42 tall) has three tracks at 1/4, 1/2, 3/4; the lane takes the middle one, the one beside the
-    // osc row below stays free for the drops to turn into the lane.
-    var lc = 42, r1 = fy + fh1 + lc, r2 = r1 + 168 + lc, laneL = r1 - lc / 2, laneR = r2 - lc / 2;
-    G.W = 900; G.scope = [M, MT, fw1, T1]; G.bez = [M + 18, MT + 20, bz1]; G.ctl = [M + 18 + bz1 + 12, MT + 20, CC, bz1];
+    var gp = 16, bz1 = 514, fw1 = 16 + bz1 + 8 + 16 + CC + 16, rw = 900 - 2 * M - gp - fw1, T1 = 20 + bz1 + 16, rx = M + fw1 + gp;
+    var lc = 40, fy = MT + T1 + gp, fh1 = H - M - fy - 2 * (168 + lc), mw = 174, mg = 32, px = [M, M + mw + mg, M + 2 * (mw + mg)];
+    // Each lane corridor (40 tall) has three tracks at 1/4, 1/2, 3/4; the lane takes the middle one, the one beside the
+    // osc row below stays free for the drops to turn into the lane. Effects takes the height that is left (194).
+    var r1 = fy + fh1 + lc, r2 = r1 + 168 + lc, laneL = r1 - lc / 2, laneR = r2 - lc / 2;
+    G.W = 900; G.scope = [M, MT, fw1, T1]; G.bez = [M + 16, MT + 20, bz1]; G.ctl = [M + 16 + bz1 + 24, MT + 20, CC, bz1];
     G.ana = [rx, MT, rw, T1]; G.fx = [M, fy, fw1, fh1]; G.sd = [rx, fy, rw, H - M - fy];
     G.osc = [[px[0], r1], [px[1], r1], [px[2], r1], [px[0], r2], [px[1], r2], [px[2], r2]].map(function (p) { return [p[0], p[1], mw, 168]; }); G.oscRow = false;
     G.rings = [[px[0] + mw + mg / 2, r1 + 26], [px[1] + mw + mg / 2, r1 + 26], [px[0] + mw + mg / 2, r2 + 26], [px[1] + mw + mg / 2, r2 + 26]]; G.ringGap = mg / 2;
@@ -544,7 +548,7 @@ function geometry(lk, H) {
     // the pair turns at stays free. The corridor between Effects and the right column: free track beside Effects, L and R on
     // the other two (the lanes and the output share them; they never overlap in height). The notch holds two pairs, so it is
     // split into two corridors: Oscilloscope -> analyser above, Effects -> Oscilloscope below, each with its bottom track free.
-    var fr = M + 18 + bz1, fb = fy + fh1, nt1 = G.ctl[1] + 458, wx1 = G.ctl[0] - 6, fbot = MT + T1;
+    var fr = M + 16 + bz1, fb = fy + fh1, nt1 = G.ctl[1] + 458, wx1 = G.ctl[0] - 16, fbot = MT + T1;
     G.fx = [M, fy, fr - M, fh1];
     G.notch = [wx1, nt1, M + fw1, fbot];
     var pc = [0.25, 0.5, 0.75].map(function (f) { return Math.round(fy + fh1 * f); });
@@ -657,7 +661,7 @@ function buildOscillators(G) {
 function buildScopeCtl(G) {
   var c = G.ctl, x = c[0], y = c[1], w = c[2], cx = x + w / 2, two = w >= 120, ox = cx - 64;
   var kw = two ? 56 : Math.min(56, w - 4), kx = two ? [ox + 4, ox + 68, ox + 68] : [cx - kw / 2, cx - kw / 2, cx - kw / 2], ky = two ? [y, y, y + 28] : [y, y + 62, y + 90];
-  el('div', at(x - 6, y, 1, c[3]) + ';background:' + P.inkMute + ';opacity:0.5');
+  el('div', at(x - 16, y, 1, c[3]) + ';background:' + P.inkMute + ';opacity:0.5');
   ui.out = key(kx[0], ky[0], kw, 50, '', null, { onClick: function () { state.mode = state.mode === 'xy' ? 'waveform' : 'xy'; syncOut(); } });
   ui.grid = key(kx[1], ky[1], kw, 22, 'Grid', 'on', { fs: 9, onClick: function () { state.grid = !state.grid; ui.grid.set(state.grid ? 'on' : 'off'); } });
   ui.glow = key(kx[2], ky[2], kw, 22, 'Glow', 'on', { fs: 9, onClick: function () { state.glow = !state.glow; ui.glow.set(state.glow ? 'on' : 'off'); } });
