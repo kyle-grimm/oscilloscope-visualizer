@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>L9 Loop</title>
+<title>Oscilloscope Visualizer</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@400;500;600;700;800&display=swap">
 <style>
   html, body { margin: 0; height: 100%; background: #242324; overflow: hidden; }
@@ -113,7 +113,7 @@ var state = {
   src: 'tone', mode: 'xy', grid: true, glow: true,
   hue: 90, hueSpeed: 0,
   fx: { filterAmount: 0, bandpassFreq: 1000, saturation: 0, chorusVoices: 0, byp: { filter: true, bandpass: true, saturation: true, chorus: true } },
-  mute: false, freeze: false, hold: false
+  mute: false, freeze: false, spinHold: false   // spinHold = the Hold button (stops Spin); state.hold is the Master trail Hold
 };
 MASTER_KEYS.forEach(function (k) { state[k] = PD[k].def; });
 
@@ -253,7 +253,7 @@ var E = {
     for (k = 0; k < n; k++) {
       var L, R;
       if (tone) {
-        if (!st.hold) { this.rot[0] = (this.rot[0] + spX / sr) % 360; this.rot[1] = (this.rot[1] + spY / sr) % 360; }
+        if (!st.spinHold) { this.rot[0] = (this.rot[0] + spX / sr) % 360; this.rot[1] = (this.rot[1] + spY / sr) % 360; }
         var bus0 = 0, bus1 = 0;
         for (g = 0; g < 2; g++) {
           var i0 = 3 * g, i1 = i0 + 1, i2 = i0 + 2, y2 = 0, y1 = 0, y0 = 0, dt, t;
@@ -398,7 +398,7 @@ function dragValue(target, ctl, range) {
 function sec(x, y, w, h, title, o) {
   o = o || {};
   var b = el('div', at(x, y, w, h) + ';box-sizing:border-box;border:1px solid ' + (o.line || P.inkMute) + ';border-radius:3px;pointer-events:none');
-  el('span', 'position:absolute;left:12px;top:-9px;padding:' + (o.tabLine ? '1px 7px;border:1px solid ' + o.tabLine : '2px 8px') + ';background:' + (o.tab || P.ink) + ';color:' + (o.tabInk || '#19181a') + ';font-size:10px;font-weight:800;letter-spacing:0.16em;text-transform:uppercase;line-height:14px;white-space:nowrap', b, title);
+  el('span', 'position:absolute;left:12px;top:-9px;padding:' + (o.tabLine ? '1px 7px;border:1px solid ' + o.tabLine : '2px 8px') + ';background:' + (o.tab || P.ink) + ';color:' + (o.tabInk || '#19181a') + ';font-size:10px;font-weight:800;letter-spacing:0.16em;text-transform:uppercase;line-height:14px;white-space:pre', b, title);
   return b;
 }
 var SCALE = 'position:absolute;inset:0;border-radius:50%;background:repeating-conic-gradient(from -136deg,' + P.inkDim + ' 0deg 2deg,transparent 2deg 27deg);' +
@@ -436,8 +436,11 @@ function knob(x, y, size, label, obj, key, d, o) {
 }
 var LED = { on: P.accent, sel: P.select, rec: P.rec, off: P.off, byp: '#4a86e8' };
 // Rubber key. led: on / sel / rec / off / byp / null. o: glyph, below, fs, onClick, aria, ledW.
+// o.tint ('red' | 'blue'): no LED; the whole key is bright in that colour when its state is on (not 'off'), dull when off.
 function key(x, y, w, h, label, led, o) {
   o = o || {};
+  var tint = o.tint ? TINT[o.tint] : null, init = led;
+  if (tint) led = null;
   var wrap = el('div', at(x, y, w) + ';display:flex;flex-direction:column;align-items:center');
   var b = el('button', 'position:relative;flex:none;box-sizing:border-box;width:' + w + 'px;height:' + h + 'px;padding:' + (led != null ? '6px' : '0') + ' 0 0;border:none;border-radius:5px;' +
     'background:linear-gradient(to bottom,#49474d,#363439 55%,#2d2c30);box-shadow:0 2px 0 #0f0e10,0 4px 7px rgba(0,0,0,0.5),inset 0 1px 0 rgba(255,255,255,0.09);' +
@@ -451,11 +454,17 @@ function key(x, y, w, h, label, led, o) {
     b: b, wrap: wrap, txt: txt, state: null,
     set: function (s) {
       k.state = s;
+      if (tint) {
+        ledEl.style.display = 'none';
+        var on = s != null && s !== 'off', st = tint[on ? 'on' : 'off'];
+        b.style.background = st[0]; b.style.boxShadow = st[1]; b.style.color = st[2]; b.setAttribute('aria-pressed', on ? 'true' : 'false');
+        return;
+      }
       if (s == null) { ledEl.style.display = 'none'; return; }
       ledEl.style.display = ''; ledEl.style.background = LED[s]; ledEl.style.boxShadow = s === 'off' ? 'none' : '0 0 7px ' + LED[s];
     }
   };
-  k.set(led);
+  k.set(tint ? init : led);
   b.addEventListener('pointerdown', function () { b.style.transform = 'translateY(1px)'; });
   ['pointerup', 'pointerleave'].forEach(function (ev) { b.addEventListener(ev, function () { b.style.transform = ''; }); });
   if (o.onClick) b.addEventListener('click', o.onClick);
@@ -492,45 +501,45 @@ function flash(k) { var s = k.state; k.set('rec'); setTimeout(function () { k.se
 // ---------------------------------------------------------------- geometry
 // The panel fills the window. Landscape (L9) is 1440 wide, portrait (L9v) 900 wide; the height follows the window's shape.
 var RING_OSC = [1, 2, 4, 5];   // the chord layer each FM ring belongs to: it modulates the oscillator to its left
+var BG = 12;                   // spacing between the L and R signal lines
 function geometry(lk, H) {
   var G = { lk: lk, H: H };
   if (lk === 'land') {
     // 1440 x 1080: the scope is as tall as the space above the osc row; the column beside it keeps what is left.
-    var oscH = 140, oscY = H - 24 - oscH, top = 52, topB = oscY - 52, s = topB - top, fh = 182;
+    var oscH = 140, oscY = H - 24 - oscH, top = 36, topB = oscY - 52, s = topB - top, fh = 182;
     var ax = 32 + s + 24, aw = 140, colX = ax + aw + 24, cw = 1408 - colX;
     var xs = [32, 260, 488, 764, 992, 1220], w = 188;
     G.W = 1440; G.scope = [32, top, s]; G.ana = [ax, top, aw, s];
     G.sd = [colX, top, cw, s - fh - 16]; G.fx = [colX, topB - fh, cw, fh];
     G.osc = xs.map(function (x) { return [x, oscY, w, oscH]; }); G.oscRow = true;
     G.rings = [[240, oscY + 30], [468, oscY + 30], [972, oscY + 30], [1200, oscY + 30]]; G.ringGap = 20;
-    var fx = G.fx, yR = fx[1] + Math.round(fx[3] * 0.42), yL = fx[1] + Math.round(fx[3] * 0.62), lL = oscY - 30, lR = oscY - 16, sR = 32 + s;
+    // L and R stay BG (12 px) apart wherever they enter a module; R runs above L so the two never cross.
+    var fx = G.fx, yL = fx[1] + Math.round(fx[3] * 0.55), yR = yL - BG, lL = oscY - 30, lR = lL + BG, sR = 32 + s;
     G.drops = xs.map(function (x, i) { return 'M' + (x + w - 34) + ' ' + oscY + 'V' + (i < 3 ? lL : lR); });
     G.dropX = xs.map(function (x) { return x + w - 34; }); G.laneY = [lL, lR];
     G.busTail = [
       'H1414V' + yL + 'H1415M' + colX + ' ' + yL + 'H' + (ax + aw + 7) + 'M' + ax + ' ' + yL + 'H' + (sR + 7),
-      'H1426V' + yR + 'H1415M' + colX + ' ' + yR + 'H' + (ax + aw + 7) + 'M' + ax + ' ' + yR + 'H' + (sR + 7)];
+      'H' + (1414 + BG) + 'V' + yR + 'H1415M' + colX + ' ' + yR + 'H' + (ax + aw + 7) + 'M' + ax + ' ' + yR + 'H' + (sR + 7)];
     var lh = function (xx, yy) { return 'M' + xx + ' ' + yy + 'l6 -4v8z'; };
     G.heads = [lh(1409, yL) + lh(ax + aw + 1, yL) + lh(sR + 1, yL), lh(1409, yR) + lh(ax + aw + 1, yR) + lh(sR + 1, yR)];
-    G.labels = [[40, lL - 4, 'X · L', P.X], [872, lR - 4, 'Y · R', P.Y]];
   } else {
     // 900 x 1200: Effects under the scope, Source & Display under the analyser, the osc rows below Effects.
-    var fy = 576, fh = 182, laneL = fy + fh + 20, r1 = laneL + 22, laneR = r1 + 168 + 18, r2 = laneR + 22, px = [32, 210, 388];
-    G.W = 900; G.scope = [32, 52, 500]; G.ana = [572, 52, 248, 500];
+    var fy = 560, fh = 182, laneL = fy + fh + 24, r1 = laneL + 26, laneR = r1 + 168 + 22, r2 = laneR + 26, px = [32, 210, 388];
+    G.W = 900; G.scope = [32, 36, 500]; G.ana = [572, 36, 248, 500];
     G.fx = [32, fy, 500, fh]; G.sd = [572, fy, 248, H - 24 - fy];
     G.osc = [[32, r1], [210, r1], [388, r1], [32, r2], [210, r2], [388, r2]].map(function (p) { return [p[0], p[1], 144, 168]; }); G.oscRow = false;
     G.rings = [[193, r1 + 26], [371, r1 + 26], [193, r2 + 26], [371, r2 + 26]]; G.ringGap = 17;
     // Buses climb the gap right of the osc rows into Effects (R outer and higher, so they never cross),
     // then Effects feeds the scope above it and the scope feeds the analyser.
-    var yR = fy + 60, yL = fy + 120;
+    var yL = fy + 98, yR = yL - BG, sb = 536, yA = 466;   // sb: scope section bottom; yA: L into the analyser (R is BG above)
     G.drops = [0, 1, 2, 3, 4, 5].map(function (i) { var x = px[i % 3] + 90; return i < 3 ? 'M' + x + ' ' + r1 + 'V' + laneL : 'M' + x + ' ' + r2 + 'V' + laneR; });
     var up = function (xx, yy) { return 'M' + xx + ' ' + yy + 'l-4 6h8z'; }, left = function (xx, yy) { return 'M' + xx + ' ' + yy + 'l6 -4v8z'; },
         right = function (xx, yy) { return 'M' + xx + ' ' + yy + 'l-6 -4v8z'; };
     G.dropX = [0, 1, 2, 3, 4, 5].map(function (i) { return px[i % 3] + 90; }); G.laneY = [laneL, laneR];
     G.busTail = [
-      'H548V' + yL + 'H539M266 ' + fy + 'V559M532 470H566',
-      'H560V' + yR + 'H539M298 ' + fy + 'V559M532 490H566'];
-    G.heads = [left(533, yL) + up(266, 553) + right(572, 470), left(533, yR) + up(298, 553) + right(572, 490)];
-    G.labels = [[40, laneL - 4, 'X · L', P.X], [40, laneR - 4, 'Y · R', P.Y]];
+      'H548V' + yL + 'H539M270 ' + fy + 'V' + (sb + 7) + 'M532 ' + yA + 'H566',
+      'H' + (548 + BG) + 'V' + yR + 'H539M' + (270 + BG) + ' ' + fy + 'V' + (sb + 7) + 'M532 ' + (yA - BG) + 'H566'];
+    G.heads = [left(533, yL) + up(270, sb + 1) + right(572, yA), left(533, yR) + up(270 + BG, sb + 1) + right(572, yA - BG)];
   }
   return G;
 }
@@ -542,16 +551,14 @@ function build(lk, H) {
   GEO = G; ui = { syncers: [] };
   hideTip(); panel.innerHTML = '';
   stage.style.width = G.W + 'px'; stage.style.height = G.H + 'px';
-  tx(32, 18, 'Visualizer', 'font-size:15px;font-weight:800;letter-spacing:0.32em;text-transform:uppercase;color:' + P.ink + ';line-height:1');
-  el('span', 'position:absolute;right:32px;top:20px;font-size:11px;font-weight:700;letter-spacing:0.2em;text-transform:uppercase;color:' + P.inkMute + ';line-height:1', panel, lk === 'land' ? 'L9 · Loop' : 'L9v · Loop');
-
-  // Oscilloscope: bezel and canvas, no text inside.
-  var s = G.scope;
-  var bez = el('div', at(s[0], s[1], s[2], s[2]) + ';box-sizing:border-box;padding:12px;border-radius:8px;background:#0b0b0c;box-shadow:inset 0 2px 6px rgba(0,0,0,0.9),0 1px 0 rgba(255,255,255,0.06)');
+  // Oscilloscope: a framed section with its nameplate; inside, a square bezel and canvas with no text.
+  var s = G.scope, bs = s[2] - 36;
+  sec(s[0], s[1], s[2], s[2], 'Oscilloscope');
+  var bez = el('div', at(s[0] + 18, s[1] + 20, bs, bs) + ';box-sizing:border-box;padding:12px;border-radius:8px;background:#0b0b0c;box-shadow:inset 0 2px 6px rgba(0,0,0,0.9),0 1px 0 rgba(255,255,255,0.06)');
   bez.setAttribute('aria-label', 'Oscilloscope');
   var scrIn = el('div', 'position:relative;width:100%;height:100%;border-radius:3px;background:#050406;overflow:hidden', bez);
   scope = el('canvas', 'position:absolute;inset:0;width:100%;height:100%', scrIn);
-  scope.cssW = s[2] - 24; scope.width = scope.height = scope.cssW * 2;
+  scope.cssW = bs - 24; scope.width = scope.height = scope.cssW * 2;
   sx = scope.getContext('2d'); sx.fillStyle = '#050406'; sx.fillRect(0, 0, scope.width, scope.height);
 
   // Stereo spectrum analyser: L to the left of the centre line, R to the right, frequency rising up the strip.
@@ -571,7 +578,6 @@ function build(lk, H) {
   routeSvg.setAttribute('width', String(G.W)); routeSvg.setAttribute('height', String(G.H)); routeSvg.setAttribute('aria-hidden', 'true');
   routeSvg.style.cssText = 'position:absolute;left:0;top:0;overflow:visible;pointer-events:none';
   panel.appendChild(routeSvg);
-  G.labels.forEach(function (lb) { tx(lb[0], lb[1], lb[2], PRINT(8.5, lb[3])); });
   syncUI();
 }
 
@@ -580,7 +586,7 @@ function buildOscillators(G) {
   G.osc.forEach(function (p, i) {
     var x = p[0], y = p[1], w = p[2], main = i % 3 === 0, col = i < 3 ? P.X : P.Y;
     var O = function () { return state.osc[i]; };
-    sec(x, y, w, p[3], (main ? 'Osc ' + (i + 1) + ' · ' + (i < 3 ? 'X' : 'Y') + ' Main' : 'Osc ' + (i + 1)), main ? { line: col, tab: col } : { line: col, tab: P.tabSub, tabInk: col, tabLine: col });
+    sec(x, y, w, p[3], (main ? 'Osc ' + (i + 1) + '   ' + (i < 3 ? 'X-L' : 'Y-R') : 'Osc ' + (i + 1)), main ? { line: col, tab: col } : { line: col, tab: P.tabSub, tabInk: col, tabLine: col });
     var g = glass(x + 10, y + 14, w - 20, G.oscRow ? 32 : 24, 'Oscillator ' + (i + 1));
     g.g.style.cursor = 'pointer';
     g.g.title = 'Click: Off, Sine, Triangle, Sawtooth, Square';
@@ -628,12 +634,12 @@ function buildSD(m) {
     return [j < 3 ? x + 16 + j * (tk + tg) : x + 16 + iw - (6 - j) * tk - (5 - j) * tg, y + 18];
   };
   var T = function (j, label, led, o) { var p = tp(j); return key(p[0], p[1], tk, 28, label, led, o); };
-  ui.playK = T(0, '', 'off', { glyph: '▶', fs: 13, below: 'Play', aria: 'Play', onClick: play });
-  ui.stopK = T(1, '', 'off', { glyph: '■', fs: 12, below: 'Stop', aria: 'Stop', onClick: stop });
-  ui.recK = T(2, '', 'off', { glyph: '●', fs: 12, below: 'Rec', aria: 'Record', onClick: toggleRec });
-  ui.mute = T(3, 'Mute', 'off', { below: 'Audio', onClick: function () { state.mute = !state.mute; ui.mute.set(state.mute ? 'rec' : 'off'); setGain(); } });
-  ui.freeze = T(4, 'Freeze', 'off', { below: 'Display', onClick: function () { state.freeze = !state.freeze; ui.freeze.set(state.freeze ? 'on' : 'off'); } });
-  ui.hold = T(5, 'Hold', 'off', { below: 'Spin', onClick: function () { state.hold = !state.hold; ui.hold.set(state.hold ? 'on' : 'off'); } });
+  ui.playK = T(0, '', 'off', { tint: 'red', glyph: '▶', fs: 13, below: 'Play', aria: 'Play', onClick: play });
+  ui.stopK = T(1, '', 'off', { tint: 'red', glyph: '■', fs: 12, below: 'Stop', aria: 'Stop', onClick: stop });
+  ui.recK = T(2, '', 'off', { tint: 'red', glyph: '●', fs: 12, below: 'Rec', aria: 'Record', onClick: toggleRec });
+  ui.mute = T(3, 'Mute', 'off', { tint: 'blue', below: 'Audio', onClick: function () { state.mute = !state.mute; ui.mute.set(state.mute ? 'rec' : 'off'); setGain(); } });
+  ui.freeze = T(4, 'Freeze', 'off', { tint: 'blue', below: 'Display', onClick: function () { state.freeze = !state.freeze; ui.freeze.set(state.freeze ? 'on' : 'off'); } });
+  ui.hold = T(5, 'Hold', 'off', { tint: 'blue', below: 'Spin', onClick: function () { state.spinHold = !state.spinHold; ui.hold.set(state.spinHold ? 'on' : 'off'); } });
 
   var r = y + (wide ? 80 : 142), k4 = Math.floor((iw - 18) / 4), p4 = function (j, yy) { return [x + 16 + j * (k4 + 6), yy]; };
   ui.src = radio([0, 1, 2, 3].map(function (j) { return p4(j, r); }), k4, 22, ['Tone', 'Mic', 'Line', 'File'], function (i) { setSource(['tone', 'mic', 'line', 'file'][i]); });
@@ -641,11 +647,12 @@ function buildSD(m) {
   ui.grid = key(p4(2)[0], r + 30, k4, 22, 'Grid', 'on', { fs: 9, onClick: function () { state.grid = !state.grid; ui.grid.set(state.grid ? 'on' : 'off'); } });
   ui.glow = key(p4(3)[0], r + 30, k4, 22, 'Glow', 'on', { fs: 9, onClick: function () { state.glow = !state.glow; ui.glow.set(state.glow ? 'on' : 'off'); } });
 
-  // Trace knobs: Hue and Hue Spd, then a red / white / cyan rule, then Persist and Hold.
+  // Trace knobs. The Hue and Hue Spd labels take the beam's current colour (see beamLabels).
   var Sg = function () { return state; }, ky = r + 96;
   var DK = [['Hue', 'hue'], ['Hue Spd', 'hueSpeed'], ['Persist', 'persistence'], ['Hold', 'hold']];
-  DK.forEach(function (d, k) { knob(x + 16 + iw * (k + 0.5) / 4, ky, 22, d[0], Sg, d[1], PD[d[1]], { fs: 8 }); });
-  el('div', at(x + 16 + iw / 2 - 1.5, ky - 24, 3, 62) + ';background:linear-gradient(to right,' + P.X + ' 0 1px,#ffffff 1px 2px,' + P.Y + ' 2px 3px)');
+  ui.hueLabs = [];
+  DK.forEach(function (d, k) { var kn = knob(x + 16 + iw * (k + 0.5) / 4, ky, 22, d[0], Sg, d[1], PD[d[1]], { fs: 8 }); if (k < 2) ui.hueLabs.push(kn.lab); });
+  beamLabCol = '';
 
   // Preset list: every preset is a line; tap or click one to select and load it, scroll with the wheel or a finger.
   var lx = x + 16, ly = ky + 54, lw = iw, ny = y + h - 42, lh = ny - 10 - ly;
@@ -685,23 +692,23 @@ function buildFX(m) {
   FXDEF.forEach(function (d, k) {
     var cx = x + 16 + step * (k + 0.5);
     knob(cx, cy, 30, d[0], Fx, d[1], PD[d[1]], { after: drawFx });
-    ui.byp.push(key(cx - bw / 2, cy + 46, bw, 20, 'Bypass', null, { fs: 8, onClick: function () { state.fx.byp[d[2]] = !state.fx.byp[d[2]]; syncByp(); drawFx(); } }));
+    ui.byp.push(key(cx - bw / 2, cy + 46, bw, 20, 'Bypass', 'on', { tint: 'blue', fs: 8, onClick: function () { state.fx.byp[d[2]] = !state.fx.byp[d[2]]; syncByp(); drawFx(); } }));
   });
   el('div', at(x + 16 + fw + 6, y + 18, 1, h - 36) + ';background:' + P.inkMute + ';opacity:0.5');
   var mc = x + w - 16 - mw / 2, dx = Math.min(36, mw / 4);
   cl(mc, y + 18, mw, 'Master', PRINT(8));
   MASTERDEF.forEach(function (d, k) { knob(mc + (k % 2 ? dx : -dx), y + 64 + Math.floor(k / 2) * 64, 22, d[0], Sg, d[1], PD[d[1]], { fs: 8 }); });
 }
-// Bypass keys follow the original's colours: bright blue (no glow) while the stage is bypassed, dull blue while it runs.
-var BYPK = {
-  on: ['linear-gradient(to bottom,#5b8fe0,#3568b8)', '0 2px 0 #0f0e10,0 4px 7px rgba(0,0,0,0.5),inset 0 1px 0 rgba(255,255,255,0.3)', '#ffffff'],
-  off: ['linear-gradient(to bottom,#2e3c55,#222d40)', '0 2px 0 #0f0e10,0 4px 7px rgba(0,0,0,0.5),inset 0 1px 0 rgba(255,255,255,0.06)', '#7d8cab']
+// Tinted keys. Blue follows the original's Bypass colours (Bypass, Mute, Freeze, Hold); red is the transport (Play, Stop, Rec).
+var TINT = {
+  blue: { on: ['linear-gradient(to bottom,#5b8fe0,#3568b8)', '0 2px 0 #0f0e10,0 4px 7px rgba(0,0,0,0.5),inset 0 1px 0 rgba(255,255,255,0.3)', '#ffffff'], off: ['linear-gradient(to bottom,#2e3c55,#222d40)', '0 2px 0 #0f0e10,0 4px 7px rgba(0,0,0,0.5),inset 0 1px 0 rgba(255,255,255,0.06)', '#7d8cab'] },
+  red: { on: ['linear-gradient(to bottom,#e2595c,#b3363b)', '0 2px 0 #0f0e10,0 4px 7px rgba(0,0,0,0.5),inset 0 1px 0 rgba(255,255,255,0.3)', '#ffffff'],
+         off: ['linear-gradient(to bottom,#5a3437,#432628)', '0 2px 0 #0f0e10,0 4px 7px rgba(0,0,0,0.5),inset 0 1px 0 rgba(255,255,255,0.06)', '#c48a8d'] }
 };
 function syncByp() {
   FXDEF.forEach(function (d, k) {
-    var byp = state.fx.byp[d[2]], b = ui.byp[k].b, st = BYPK[byp ? 'on' : 'off'];
-    b.style.background = st[0]; b.style.boxShadow = st[1]; b.style.color = st[2];
-    b.setAttribute('aria-pressed', byp ? 'true' : 'false'); b.setAttribute('aria-label', d[0] + ' bypass' + (byp ? ' (on)' : ' (off)'));
+    var byp = state.fx.byp[d[2]], b = ui.byp[k].b;
+    ui.byp[k].set(byp ? 'on' : 'off'); b.setAttribute('aria-label', d[0] + ' bypass' + (byp ? ' (on)' : ' (off)'));
   });
 }
 // Magnitude response of the Filter and Band Pass stages (log frequency, 20 Hz to 20 kHz).
@@ -786,7 +793,7 @@ function syncUI() {
   ui.rings.forEach(function (f) { f(); });
   ui.src.select(['tone', 'mic', 'line', 'file'].indexOf(state.src)); ui.mode.select(state.mode === 'xy' ? 1 : 0);
   ui.grid.set(state.grid ? 'on' : 'off'); ui.glow.set(state.glow ? 'on' : 'off');
-  ui.mute.set(state.mute ? 'rec' : 'off'); ui.freeze.set(state.freeze ? 'on' : 'off'); ui.hold.set(state.hold ? 'on' : 'off');
+  ui.mute.set(state.mute ? 'rec' : 'off'); ui.freeze.set(state.freeze ? 'on' : 'off'); ui.hold.set(state.spinHold ? 'on' : 'off');
   syncByp(); drawFx(); drawPresets(); drawRoutes(); refreshTransport();
 }
 
@@ -961,14 +968,22 @@ function drawScope(dt) {
 }
 
 // ---------------------------------------------------------------- run loop and window fit
+// The Hue and Hue Spd labels show the beam's current colour (Trace Hue advanced by Hue Speed); restyled only on change.
+var beamLabCol = '';
+function beamLabels() {
+  if (!ui.hueLabs) return;
+  var h = ((state.hue + state.hueSpeed * realT) % 360 + 360) % 360, c = 'hsl(' + Math.round(h) + ',90%,60%)';
+  if (c === beamLabCol) return;
+  beamLabCol = c; ui.hueLabs.forEach(function (l) { l.style.color = c; });
+}
 var pL = new Float32Array(4096), pR = new Float32Array(4096), zero = new Float32Array(4096), lastT = 0, blink = 0;
 E.init(48000);
 function frame(t) {
   var dt = lastT ? Math.min(0.1, (t - lastT) / 1000) : 1 / 60; lastT = t;
   if (!A.running) E.process(zero, zero, pL, pR, Math.min(4096, Math.round(E.sr * dt)));   // silent preview until Play
   if (!state.freeze) { realT += dt; drawScope(dt); drawAnalyzer(dt); }
-  if (!A.running) { blink += dt; ui.playK.set(Math.floor(blink * 2) % 2 ? 'on' : 'off'); }
-  else if (A.recorder) { blink += dt; ui.recK.set(Math.floor(blink * 2) % 2 ? 'rec' : 'off'); }
+  beamLabels();
+  if (A.recorder) { blink += dt; ui.recK.set(Math.floor(blink * 2) % 2 ? 'rec' : 'off'); }
   requestAnimationFrame(frame);
 }
 var layoutKey = null, layoutH = 0, rebuildT = 0;
