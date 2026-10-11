@@ -2,11 +2,15 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#242324">
 <title>Oscilloscope Visualizer</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@400;500;600;700;800&display=swap">
 <style>
-  html, body { margin: 0; height: 100%; background: #242324; overflow: hidden; }
+  html, body { margin: 0; width: 100%; height: 100%; background: #242324; overflow: hidden; }
+  /* Mobile: the panel is scaled to fit by script, so the page never scrolls, bounces, zooms or inflates its text. */
+  html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+  body { position: fixed; inset: 0; overscroll-behavior: none; touch-action: none; -webkit-tap-highlight-color: transparent; }
   #stage { position: absolute; left: 0; top: 0; transform-origin: 0 0; color: #ebebeb;
     font-family: 'Barlow Semi Condensed', 'Segoe UI', system-ui, sans-serif; user-select: none; -webkit-user-select: none; }
   #panel { position: absolute; left: 0; top: 0; width: 100%; height: 100%; background: linear-gradient(to bottom, #2b2a2d, #242324 48px); }
@@ -1073,7 +1077,7 @@ function frame(t) {
 }
 var layoutKey = null, layoutH = 0, rebuildT = 0;
 function wanted() {
-  var h = location.hash, ww = window.innerWidth, wh = window.innerHeight;
+  var h = location.hash, v = viewSize(), ww = v[0], wh = v[1];
   var lk = h === '#portrait' ? 'port' : h === '#landscape' ? 'land' : (wh > ww ? 'port' : 'land');
   var H = lk === 'land' ? 1080 : 1200;   // fixed 4:3 (1440 x 1080) or 3:4 (900 x 1200), letterboxed to the window
   return { lk: lk, H: H };
@@ -1087,10 +1091,17 @@ function sizeDisplays() {
   var aw = Math.round(ana.cssW * d), ah = Math.round(ana.cssH * d);
   if (Math.abs(ana.c.width - aw) > 2 || Math.abs(ana.c.height - ah) > 2) { ana.c.width = ana.w = aw; ana.c.height = ana.h = ah; }
 }
+// The visible area in layout pixels: the visual viewport (inside the browser bars on mobile) scaled back to zoom 1, so a
+// stray pinch-zoom does not shrink the panel. Falls back to the window size.
+function viewSize() {
+  var v = window.visualViewport;
+  if (v && v.width > 0 && v.height > 0) return [v.width * v.scale, v.height * v.scale];
+  return [window.innerWidth, window.innerHeight];
+}
 function scaleToWindow() {
-  var k = Math.min(window.innerWidth / GEO.W, window.innerHeight / GEO.H);
+  var v = viewSize(), k = Math.min(v[0] / GEO.W, v[1] / GEO.H);
   stage.dataset.scale = String(k);
-  stage.style.transform = 'translate(' + ((window.innerWidth - GEO.W * k) / 2) + 'px,' + ((window.innerHeight - GEO.H * k) / 2) + 'px) scale(' + k + ')';
+  stage.style.transform = 'translate(' + ((v[0] - GEO.W * k) / 2) + 'px,' + ((v[1] - GEO.H * k) / 2) + 'px) scale(' + k + ')';
 }
 function fit() {
   var w = wanted();
@@ -1098,7 +1109,13 @@ function fit() {
   scaleToWindow();
   sizeDisplays();
 }
-window.addEventListener('resize', function () { scaleToWindow(); clearTimeout(rebuildT); rebuildT = setTimeout(fit, 150); });
+function onResize() { scaleToWindow(); clearTimeout(rebuildT); rebuildT = setTimeout(fit, 150); }
+window.addEventListener('resize', onResize);
+if (window.visualViewport) window.visualViewport.addEventListener('resize', onResize);   // mobile browser bars
+// Rotation: some mobile browsers report the old size at first, so fit again once the rotation has settled.
+window.addEventListener('orientationchange', function () { onResize(); setTimeout(fit, 400); });
+window.addEventListener('pageshow', fit);   // back / forward cache restore
+document.addEventListener('gesturestart', function (e) { e.preventDefault(); });   // iOS pinch-zoom
 window.addEventListener('hashchange', fit);
 document.addEventListener('keydown', function (e) {
   if (e.target && e.target.getAttribute && e.target.getAttribute('role') === 'slider') return;
