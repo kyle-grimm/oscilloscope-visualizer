@@ -533,23 +533,27 @@ function geometry(lk, H) {
     G.ana = [rx, MT, rw, T1]; G.fx = [M, fy, fw1, fh1]; G.sd = [rx, fy, rw, H - M - fy];
     G.osc = [[px[0], r1], [px[1], r1], [px[2], r1], [px[0], r2], [px[1], r2], [px[2], r2]].map(function (p) { return [p[0], p[1], mw, 168]; }); G.oscRow = false;
     G.rings = [[px[0] + mw + mg / 2, r1 + 26], [px[1] + mw + mg / 2, r1 + 26], [px[0] + mw + mg / 2, r2 + 26], [px[1] + mw + mg / 2, r2 + 26]]; G.ringGap = mg / 2;
-    // Lanes rise in the channel right of the osc rows into the bottom of Effects (R further right, so they never cross);
-    // Effects feeds the Oscilloscope above it, and the Oscilloscope feeds the analyser (below the control column).
-    // OSC 1's lane rises on the line of OSC 3's right border. Effects feeds the frame through the notch cut below Hue Spd,
-    // and the frame feeds the analyser from the same notch.
-    var xL = px[2] + mw, xR = xL + BG, fb = fy + fh1, nt1 = G.ctl[1] + 396, wx1 = G.ctl[0] - 6, fbot = MT + T1;
+    // Effects ends on the line of OSC 3's right border. Its right edge carries three pairs, evenly spaced: the output to the
+    // Oscilloscope (top: out, then up through the notch cut below Hue Spd into the frame), the Source & Display input (middle),
+    // and the oscillator lanes (bottom: up the channel right of the osc rows, then in). Inner lines turn first, so nothing
+    // crosses. The Oscilloscope feeds the analyser from the same notch.
+    var fr = px[2] + mw, fb = fy + fh1, nt1 = G.ctl[1] + 396, wx1 = G.ctl[0] - 6, fbot = MT + T1;
+    G.fx = [M, fy, fr - M, fh1];
     G.notch = [wx1, nt1, M + fw1, fbot];
-    var nx1 = [wx1 + 24, wx1 + 36], yE1 = [fbot - 40, fbot - 52], yS1 = [fbot - 100, fbot - 112];
+    var pc = [0.25, 0.5, 0.75].map(function (f) { return Math.round(fy + fh1 * f); });
+    var yO = [pc[0] - 6, pc[0] + 6], yI = [pc[1] + 6, pc[1] - 6], yLn = [pc[2] + 6, pc[2] - 6];   // [L, R] per pair
+    var oX = [fr + 36, fr + 48], lX = [fr + 12, fr + 24];
+    var yE1 = [fbot - 40, fbot - 52], yS1 = [fbot - 100, fbot - 112];
     G.drops = [0, 1, 2, 3, 4, 5].map(function (i) { var x = px[i % 3] + Math.round(mw * 0.6); return i < 3 ? 'M' + x + ' ' + r1 + 'V' + laneL : 'M' + x + ' ' + r2 + 'V' + laneR; });
     G.dropX = [0, 1, 2, 3, 4, 5].map(function (i) { return px[i % 3] + Math.round(mw * 0.6); }); G.laneY = [laneL, laneR];
     G.busTail = [0, 1].map(function (c) {
-      return 'H' + [xL, xR][c] + 'V' + (fb + 7) + 'M' + nx1[c] + ' ' + fy + 'V' + yE1[c] + 'H' + (wx1 + 7) + 'M' + wx1 + ' ' + yS1[c] + 'H' + (rx - 7);
+      return 'H' + lX[c] + 'V' + yLn[c] + 'H' + (fr + 7) +
+        'M' + fr + ' ' + yO[c] + 'H' + oX[c] + 'V' + yE1[c] + 'H' + (wx1 + 7) + 'M' + wx1 + ' ' + yS1[c] + 'H' + (rx - 7);
     });
-    G.heads = [0, 1].map(function (c) { return up([xL, xR][c], fb + 1) + left(wx1 + 1, yE1[c]) + right(rx, yS1[c]); });
+    G.heads = [0, 1].map(function (c) { return left(fr + 1, yLn[c]) + left(wx1 + 1, yE1[c]) + right(rx, yS1[c]); });
     // External input (Mic, Line, File): Source & Display feeds Effects across the gap to its left.
-    var fr = M + fw1, yi = fy + 52;
-    G.inPaths = ['M' + rx + ' ' + yi + 'H' + (fr + 7), 'M' + rx + ' ' + (yi - BG) + 'H' + (fr + 7)];
-    G.inHeads = [left(fr + 1, yi), left(fr + 1, yi - BG)];
+    G.inPaths = [0, 1].map(function (c) { return 'M' + rx + ' ' + yI[c] + 'H' + (fr + 7); });
+    G.inHeads = [0, 1].map(function (c) { return left(fr + 1, yI[c]); });
   }
   return G;
 }
