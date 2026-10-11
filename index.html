@@ -544,17 +544,17 @@ function geometry(lk, H) {
     // to the Oscilloscope (top: out, then up through the notch cut below the beam controls into the frame), the Source &
     // Display input (middle), and the oscillator lanes (bottom: up the channel right of the osc rows, then in). Inner lines
     // turn first, so nothing crosses. The Oscilloscope feeds the analyser from the same notch.
-    // Tracks: every corridor is split into three equal tracks at 1/4, 1/2, 3/4 of its width, and the track beside the module
-    // the pair turns at stays free. The corridor between Effects and the right column: free track beside Effects, L and R on
-    // the other two (the lanes and the output share them; they never overlap in height). The notch holds two pairs, so it is
-    // split into two corridors: Oscilloscope -> analyser above, Effects -> Oscilloscope below, each with its bottom track free.
+    // Tracks: the landscape signal gap, BG (12) between lines and from the border, with one free track for turning. The
+    // vertical runs use the tracks of the 48 channel right of the osc rows: free beside the rows, then L, R (the lanes and
+    // the output share them; they never overlap in height). The notch (72) holds Oscilloscope -> analyser at 12 / 24 from
+    // its top, a free track, then Effects -> Oscilloscope at 48 / 60 (12 above the frame bottom).
     var fr = M + 16 + bz1, fb = fy + fh1, nt1 = G.ctl[1] + 458, wx1 = G.ctl[0] - 16, fbot = MT + T1;
     G.fx = [M, fy, fr - M, fh1];
     G.notch = [wx1, nt1, M + fw1, fbot];
     var pc = [0.25, 0.5, 0.75].map(function (f) { return Math.round(fy + fh1 * f); });
     var yO = [pc[0] - 6, pc[0] + 6], yI = [pc[1] + 6, pc[1] - 6], yLn = [pc[2] + 6, pc[2] - 6];   // [L, R] per pair
-    var tA = (rx - fr) / 4, oX = [fr + 2 * tA, fr + 3 * tA], lX = oX;
-    var q = (fbot - nt1) / 8, yS1 = [nt1 + 2 * q, nt1 + q], yE1 = [nt1 + 6 * q, nt1 + 5 * q];
+    var oR = px[2] + mw, oX = [oR + 2 * BG, oR + 3 * BG], lX = oX;
+    var yS1 = [nt1 + 2 * BG, nt1 + BG], yE1 = [nt1 + 5 * BG, nt1 + 4 * BG];
     G.drops = [0, 1, 2, 3, 4, 5].map(function (i) { var x = px[i % 3] + Math.round(mw * 0.6); return i < 3 ? 'M' + x + ' ' + r1 + 'V' + laneL : 'M' + x + ' ' + r2 + 'V' + laneR; });
     G.dropX = [0, 1, 2, 3, 4, 5].map(function (i) { return px[i % 3] + Math.round(mw * 0.6); }); G.laneY = [laneL, laneR];
     G.busTail = [0, 1].map(function (c) {
