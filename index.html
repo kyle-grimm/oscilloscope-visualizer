@@ -533,15 +533,17 @@ function geometry(lk, H) {
     // Screen 514 square; the thin control column (CC) leaves the rest of the width to the analyser / Source & Display column.
     // Portrait controls: no divider; the column sits one track (12) right of the screen and the frame edge 5 px past the
     // buttons (CC = key width).
-    var gp = 16, bz1 = 514, fw1 = 16 + bz1 + 12 + CC + 5, rw = 900 - 2 * M - gp - fw1, T1 = 20 + bz1 + 16, rx = M + fw1 + gp;
-    var lc = 40, fy = MT + T1 + gp, fh1 = H - M - fy - 2 * (168 + lc), mg = 32, mw = (rx - 2 * BG - M - 2 * mg) / 3, px = [M, M + mw + mg, M + 2 * (mw + mg)];
+    // OSC 4-6 sit one track (12) left of OSC 1-3 on the outer margin; everything else starts at ML, one track in.
+    var ML = M + BG, gp = 16, bz1 = 514, fw1 = 16 + bz1 + 12 + CC + 5, rw = 900 - ML - M - gp - fw1, T1 = 20 + bz1 + 16, rx = ML + fw1 + gp;
+    var lc = 40, fy = MT + T1 + gp, fh1 = H - M - fy - 2 * (168 + lc), mg = 32, mw = (rx - 2 * BG - ML - 2 * mg) / 3, px = [ML, ML + mw + mg, ML + 2 * (mw + mg)];
+    var pxr = [px[0], px[1], px[2], px[0] - BG, px[1] - BG, px[2] - BG];   // module x by osc index
     // Each lane corridor (40 tall) has three tracks at 1/4, 1/2, 3/4; the lane takes the middle one, the one beside the
     // osc row below stays free for the drops to turn into the lane. Effects takes the height that is left (194).
     var r1 = fy + fh1 + lc, r2 = r1 + 168 + lc, laneL = r1 - lc / 2, laneR = r2 - lc / 2;
-    G.W = 900; G.scope = [M, MT, fw1, T1]; G.bez = [M + 16, MT + 20, bz1]; G.ctl = [M + 16 + bz1 + 12, MT + 20, CC, bz1];
-    G.ana = [rx, MT, rw, T1]; G.fx = [M, fy, fw1, fh1]; G.sd = [rx, fy, rw, H - M - fy];
-    G.osc = [[px[0], r1], [px[1], r1], [px[2], r1], [px[0], r2], [px[1], r2], [px[2], r2]].map(function (p) { return [p[0], p[1], mw, 168]; }); G.oscRow = false;
-    G.rings = [[px[0] + mw + mg / 2, r1 + 26], [px[1] + mw + mg / 2, r1 + 26], [px[0] + mw + mg / 2, r2 + 26], [px[1] + mw + mg / 2, r2 + 26]]; G.ringGap = mg / 2;
+    G.W = 900; G.scope = [ML, MT, fw1, T1]; G.bez = [ML + 16, MT + 20, bz1]; G.ctl = [ML + 16 + bz1 + 12, MT + 20, CC, bz1];
+    G.ana = [rx, MT, rw, T1]; G.sd = [rx, fy, rw, H - M - fy];
+    G.osc = pxr.map(function (x, i) { return [x, i < 3 ? r1 : r2, mw, 168]; }); G.oscRow = false;
+    G.rings = [[px[0] + mw + mg / 2, r1 + 26], [px[1] + mw + mg / 2, r1 + 26], [pxr[3] + mw + mg / 2, r2 + 26], [pxr[4] + mw + mg / 2, r2 + 26]]; G.ringGap = mg / 2;
     // Effects ends on the line of the screen's right border. Its right edge carries three pairs, evenly spaced: the output
     // to the Oscilloscope (top: out, then up through the notch cut below the beam controls into the frame), the Source &
     // Display input (middle), and the oscillator lanes (bottom: up the channel right of the osc rows, then in). Inner lines
@@ -551,15 +553,15 @@ function geometry(lk, H) {
     // osc modules are sized to fit; the lanes and the output share these tracks, they never overlap in height). The notch
     // (72) holds Oscilloscope -> analyser at 12 / 24 from its top, a free track, then Effects -> Oscilloscope at 48 / 60
     // (12 above the frame bottom).
-    var fr = M + 16 + bz1, fb = fy + fh1, nt1 = G.ctl[1] + 458, wx1 = fr + 8, fbot = MT + T1;
-    G.fx = [M, fy, fr - M, fh1];
-    G.notch = [wx1, nt1, M + fw1, fbot];
+    var fr = ML + 16 + bz1, fb = fy + fh1, nt1 = G.ctl[1] + 458, wx1 = fr + 8, fbot = MT + T1;
+    G.fx = [ML, fy, fr - ML, fh1];
+    G.notch = [wx1, nt1, ML + fw1, fbot];
     var pc = [0.25, 0.5, 0.75].map(function (f) { return Math.round(fy + fh1 * f); });
     var yO = [pc[0] - 6, pc[0] + 6], yI = [pc[1] + 6, pc[1] - 6], yLn = [pc[2] + 6, pc[2] - 6];   // [L, R] per pair
     var oR = px[2] + mw, oX = [oR, oR + BG], lX = oX;
     var yS1 = [nt1 + 2 * BG, nt1 + BG], yE1 = [nt1 + 5 * BG, nt1 + 4 * BG];
-    G.drops = [0, 1, 2, 3, 4, 5].map(function (i) { var x = px[i % 3] + Math.round(mw * 0.6); return i < 3 ? 'M' + x + ' ' + r1 + 'V' + laneL : 'M' + x + ' ' + r2 + 'V' + laneR; });
-    G.dropX = [0, 1, 2, 3, 4, 5].map(function (i) { return px[i % 3] + Math.round(mw * 0.6); }); G.laneY = [laneL, laneR];
+    G.drops = [0, 1, 2, 3, 4, 5].map(function (i) { var x = pxr[i] + Math.round(mw * 0.6); return i < 3 ? 'M' + x + ' ' + r1 + 'V' + laneL : 'M' + x + ' ' + r2 + 'V' + laneR; });
+    G.dropX = pxr.map(function (x) { return x + Math.round(mw * 0.6); }); G.laneY = [laneL, laneR];
     G.busTail = [0, 1].map(function (c) {
       return 'H' + lX[c] + 'V' + yLn[c] + 'H' + (fr + 7) +
         'M' + fr + ' ' + yO[c] + 'H' + oX[c] + 'V' + yE1[c] + 'H' + (wx1 + 7) + 'M' + wx1 + ' ' + yS1[c] + 'H' + (rx - 7);
