@@ -494,31 +494,30 @@ function geometry(lk, H) {
       right = function (xx, yy) { return 'M' + xx + ' ' + yy + 'l-6 -4v8z'; },
       down = function (xx, yy) { return 'M' + xx + ' ' + yy + 'l-4 -6h8z'; };
   if (lk === 'land') {
-    // 1440 x 1080. Analyser (last in the chain), Oscilloscope frame (square screen + control column), then Source & Display
-    // over Effects.
-    // The frame is as tall as the screen needs; the osc row takes the height that is left.
-    var aw = 116, g = 14, cw = 374, fh = 182;
-    var fw0 = 1440 - 2 * M - g - aw - g - cw, bz = fw0 - 18 - 12 - CC - 12, T = bz + 36;
-    var topB = MT + T, oscY = topB + 52, oscH = H - M - oscY, ax = M, sX = ax + aw + g, colX = sX + fw0 + g;
-    G.W = 1440; G.scope = [sX, MT, fw0, T]; G.bez = [sX + 18, MT + 20, bz]; G.ctl = [sX + 18 + bz + 12, MT + 20, CC, bz];
-    G.ana = [ax, MT, aw, T];
+    // 1440 x 1080. Oscilloscope frame (square screen + a double-width control window, with the Spectrum in the notch below
+    // the controls), then Source & Display over Effects. The osc row takes the height that is left (160).
+    var g = 14, fh = 182, CW = 2 * CC, bz = 810, T = bz + 36, fw0 = 18 + bz + 12 + CW + 12, cw = 1440 - 2 * M - fw0 - g;
+    var topB = MT + T, oscY = topB + 52, oscH = H - M - oscY, sX = M, colX = sX + fw0 + g;
+    G.W = 1440; G.scope = [sX, MT, fw0, T]; G.bez = [sX + 18, MT + 20, bz]; G.ctl = [sX + 18 + bz + 12, MT + 20, CW, 196];
     G.sd = [colX, MT, cw, T - fh - 16]; G.fx = [colX, topB - fh, cw, fh];
     var w = 200, xs = [M, M + 240, M + 480, M + 744, M + 984, M + 1224];   // 6 x 200: 40 between modules, 64 between X and Y
     G.osc = xs.map(function (x) { return [x, oscY, w, oscH]; }); G.oscRow = true; G.oscGlass = oscH - 96;
     G.rings = [0, 1, 3, 4].map(function (i) { return [xs[i] + w + 20, oscY + 14 + G.oscGlass / 2]; }); G.ringGap = 20;
-    // L and R stay BG (12 px) apart wherever they enter a module. The lanes rise straight into the bottom of Effects (R further
-    // right, so the two never cross). Effects feeds the Oscilloscope across the notch cut in the frame below Hue Spd, and the
-    // frame feeds the analyser on its left, last in the chain.
-    var lL = oscY - 30, lR = lL + BG, nt = G.ctl[1] + 396, wx = G.ctl[0] - 6;
+    // The frame is notched below the controls; the Spectrum sits in the notch, with a strip left under it for the Effects
+    // return. L and R stay BG (12 px) apart wherever they enter a module. The lanes rise straight into the bottom of Effects
+    // (R further right, so the two never cross); Effects feeds the Oscilloscope across the strip at the bottom of the notch,
+    // and the Oscilloscope feeds the Spectrum from the notch wall, last in the chain.
+    var lL = oscY - 30, lR = lL + BG, nt = G.ctl[1] + G.ctl[3] + 10, wx = G.ctl[0] - 6, ax = G.ctl[0] + 8, aw = CW - 8;
     G.notch = [wx, nt, sX + fw0, topB];
-    var yE = [topB - 60, topB - 72], yS = yE;   // the pair leaves the frame for the analyser at the height it came in
+    G.ana = [ax, nt + 22, aw, topB - 66 - (nt + 22)];
+    var yE = [topB - 30, topB - 42], ym = G.ana[1] + Math.round(G.ana[3] / 2), yS = [ym + 6, ym - 6];
     var xR = xs[5] + w - 34, xL = xR - BG;   // the Y lane rises into Effects on the line of OSC 6's drop; X runs BG to its left
     G.drops = xs.map(function (x, i) { return 'M' + (x + w - 34) + ' ' + oscY + 'V' + (i < 3 ? lL : lR); });
     G.dropX = xs.map(function (x) { return x + w - 34; }); G.laneY = [lL, lR];
     G.busTail = [0, 1].map(function (c) {
-      return 'H' + [xL, xR][c] + 'V' + (topB + 7) + 'M' + colX + ' ' + yE[c] + 'H' + (wx + 7) + 'M' + sX + ' ' + yS[c] + 'H' + (ax + aw + 7);
+      return 'H' + [xL, xR][c] + 'V' + (topB + 7) + 'M' + colX + ' ' + yE[c] + 'H' + (wx + 7) + 'M' + wx + ' ' + yS[c] + 'H' + (ax - 7);
     });
-    G.heads = [0, 1].map(function (c) { return up([xL, xR][c], topB + 1) + left(wx + 1, yE[c]) + left(ax + aw + 1, yS[c]); });
+    G.heads = [0, 1].map(function (c) { return up([xL, xR][c], topB + 1) + left(wx + 1, yE[c]) + right(ax, yS[c]); });
     // External input (Mic, Line, File): Source & Display feeds Effects directly below it.
     var sdB = G.sd[1] + G.sd[3], fxT = G.fx[1], xi = colX + cw - 100;
     G.inPaths = ['M' + xi + ' ' + sdB + 'V' + (fxT - 7), 'M' + (xi + BG) + ' ' + sdB + 'V' + (fxT - 7)];
@@ -645,17 +644,19 @@ function buildOscillators(G) {
 // Wide (landscape column): one row of six keys and five knobs in a row. Narrow (portrait column): 3 + 3 keys, 3 + 2 knobs.
 // Beam controls in a column inside the Oscilloscope frame, between the screen and the Spectrum: Output (XY / Wave,
 // unlabelled), Grid, Glow, then Persist, Hold, Hue, Hue Spd. Hue labels take the beam's colour; Persist and Hold labels
-// brighten toward white as they are turned up (see beamLabels).
+// brighten toward white as they are turned up (see beamLabels). A double-width window (landscape) puts Grid / Glow beside
+// Output and the knobs in a 2 x 2 (Persist, Hold / Hue, Hue Spd).
 function buildScopeCtl(G) {
-  var c = G.ctl, x = c[0], y = c[1], w = c[2], cx = x + w / 2;
+  var c = G.ctl, x = c[0], y = c[1], w = c[2], cx = x + w / 2, two = w >= 120;
+  var kx = two ? [x + 4, x + 68, x + 68] : [cx - 28, cx - 28, cx - 28], ky = two ? [y, y, y + 28] : [y, y + 62, y + 90];
   el('div', at(x - 6, y, 1, c[3]) + ';background:' + P.inkMute + ';opacity:0.5');
-  ui.out = key(cx - 28, y, 56, 50, '', null, { onClick: function () { state.mode = state.mode === 'xy' ? 'waveform' : 'xy'; syncOut(); } });
-  ui.grid = key(cx - 28, y + 62, 56, 22, 'Grid', 'on', { fs: 9, onClick: function () { state.grid = !state.grid; ui.grid.set(state.grid ? 'on' : 'off'); } });
-  ui.glow = key(cx - 28, y + 90, 56, 22, 'Glow', 'on', { fs: 9, onClick: function () { state.glow = !state.glow; ui.glow.set(state.glow ? 'on' : 'off'); } });
+  ui.out = key(kx[0], ky[0], 56, 50, '', null, { onClick: function () { state.mode = state.mode === 'xy' ? 'waveform' : 'xy'; syncOut(); } });
+  ui.grid = key(kx[1], ky[1], 56, 22, 'Grid', 'on', { fs: 9, onClick: function () { state.grid = !state.grid; ui.grid.set(state.grid ? 'on' : 'off'); } });
+  ui.glow = key(kx[2], ky[2], 56, 22, 'Glow', 'on', { fs: 9, onClick: function () { state.glow = !state.glow; ui.glow.set(state.glow ? 'on' : 'off'); } });
   var Sg = function () { return state; }, DK = [['Persist', 'persistence'], ['Hold', 'hold'], ['Hue', 'hue'], ['Hue Spd', 'hueSpeed']];
   ui.hueLabs = []; ui.trailLabs = [];
   DK.forEach(function (d, k) {
-    var n = knob(cx, y + 152 + 64 * k, 22, d[0], Sg, d[1], PD[d[1]], { fs: 8 });
+    var n = knob(two ? x + 32 + 64 * (k % 2) : cx, two ? y + 92 + 64 * Math.floor(k / 2) : y + 152 + 64 * k, 22, d[0], Sg, d[1], PD[d[1]], { fs: 8 });
     if (k < 2) ui.trailLabs.push({ lab: n.lab, key: d[1] }); else ui.hueLabs.push(n.lab);
   });
   beamLabCol = ''; trailLabKey = '';
