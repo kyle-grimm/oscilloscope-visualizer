@@ -36,7 +36,7 @@ window.addEventListener('error', function (e) { REPORT.push('ERROR ' + e.message
 
 // ---------------------------------------------------------------- palette and helpers
 var P = { ink: '#ebebeb', inkDim: '#a6a4a8', inkMute: '#8f8d92', line: '#515053', accent: '#cfabf6', accent3: '#af78ed', select: '#eded78',
-  rec: '#f0484a', off: '#3d3b40', byp: '#3568b8', X: '#e5484d', Y: '#3fbf6a', idle: '#77757b' };
+  rec: '#f0484a', off: '#3d3b40', byp: '#3568b8', tabSub: '#c4c2c7', X: '#e5484d', Y: '#3fbf6a', idle: '#77757b' };
 var TAU = Math.PI * 2;
 function clamp(v, a, b) { a = a == null ? 0 : a; b = b == null ? 1 : b; return v < a ? a : v > b ? b : v; }
 var stage = document.getElementById('stage'), panel = document.getElementById('panel'), tip = document.getElementById('tip');
@@ -578,7 +578,7 @@ function buildOscillators(G) {
   G.osc.forEach(function (p, i) {
     var x = p[0], y = p[1], w = p[2], main = i % 3 === 0, col = i < 3 ? P.X : P.Y;
     var O = function () { return state.osc[i]; };
-    sec(x, y, w, p[3], (main ? 'Osc ' + (i + 1) + ' · ' + (i < 3 ? 'X' : 'Y') + ' Main' : 'Osc ' + (i + 1)), { line: col, tab: col });
+    sec(x, y, w, p[3], (main ? 'Osc ' + (i + 1) + ' · ' + (i < 3 ? 'X' : 'Y') + ' Main' : 'Osc ' + (i + 1)), { line: col, tab: main ? col : P.tabSub });
     var g = glass(x + 10, y + 14, w - 20, G.oscRow ? 32 : 24, 'Oscillator ' + (i + 1));
     g.g.style.cursor = 'pointer';
     g.g.title = 'Click: Off, Sine, Triangle, Sawtooth, Square';
@@ -681,15 +681,24 @@ function buildFX(m) {
   FXDEF.forEach(function (d, k) {
     var cx = x + 16 + step * (k + 0.5);
     knob(cx, cy, 30, d[0], Fx, d[1], PD[d[1]], { after: drawFx });
-    ui.byp.push(key(cx - bw / 2, cy + 46, bw, 20, 'Bypass', 'byp', { fs: 8, onClick: function () { state.fx.byp[d[2]] = !state.fx.byp[d[2]]; syncByp(); drawFx(); } }));
+    ui.byp.push(key(cx - bw / 2, cy + 46, bw, 20, 'Bypass', null, { fs: 8, onClick: function () { state.fx.byp[d[2]] = !state.fx.byp[d[2]]; syncByp(); drawFx(); } }));
   });
   el('div', at(x + 16 + fw + 6, y + 18, 1, h - 36) + ';background:' + P.inkMute + ';opacity:0.5');
   var mc = x + w - 16 - mw / 2, dx = Math.min(36, mw / 4);
   cl(mc, y + 18, mw, 'Master', PRINT(8));
   MASTERDEF.forEach(function (d, k) { knob(mc + (k % 2 ? dx : -dx), y + 64 + Math.floor(k / 2) * 64, 22, d[0], Sg, d[1], PD[d[1]], { fs: 8 }); });
 }
+// Bypass keys follow the original's colours: bright, glowing blue while the stage is bypassed, dull blue while it runs.
+var BYPK = {
+  on: ['linear-gradient(to bottom,#5b8fe0,#3568b8)', '0 2px 0 #0f0e10,0 0 10px rgba(91,143,224,0.8),inset 0 1px 0 rgba(255,255,255,0.3)', '#ffffff'],
+  off: ['linear-gradient(to bottom,#2e3c55,#222d40)', '0 2px 0 #0f0e10,0 4px 7px rgba(0,0,0,0.5),inset 0 1px 0 rgba(255,255,255,0.06)', '#7d8cab']
+};
 function syncByp() {
-  FXDEF.forEach(function (d, k) { var on = !state.fx.byp[d[2]]; ui.byp[k].set(on ? 'on' : 'byp'); ui.byp[k].txt.textContent = on ? 'Active' : 'Bypass'; ui.byp[k].b.setAttribute('aria-label', d[0] + (on ? ' active' : ' bypassed')); });
+  FXDEF.forEach(function (d, k) {
+    var byp = state.fx.byp[d[2]], b = ui.byp[k].b, st = BYPK[byp ? 'on' : 'off'];
+    b.style.background = st[0]; b.style.boxShadow = st[1]; b.style.color = st[2];
+    b.setAttribute('aria-pressed', byp ? 'true' : 'false'); b.setAttribute('aria-label', d[0] + ' bypass' + (byp ? ' (on)' : ' (off)'));
+  });
 }
 // Magnitude response of the Filter and Band Pass stages (log frequency, 20 Hz to 20 kHz).
 function drawFx() {
