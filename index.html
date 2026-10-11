@@ -498,23 +498,27 @@ function geometry(lk, H) {
     // The frame is as tall as the screen needs; the osc row takes the height that is left.
     var aw = 116, g = 14, cw = 374, fh = 182;
     var fw0 = 1440 - 2 * M - g - aw - g - cw, bz = fw0 - 18 - 12 - CC - 12, T = bz + 36;
-    var topB = MT + T, oscY = topB + 52, oscH = H - M - oscY, ax = M + fw0 + g, colX = ax + aw + g;
+    var topB = MT + T, oscY = topB + 70, oscH = H - M - oscY, ax = M + fw0 + g, colX = ax + aw + g;
     G.W = 1440; G.scope = [M, MT, fw0, T]; G.bez = [M + 18, MT + 20, bz]; G.ctl = [M + 18 + bz + 12, MT + 20, CC, bz];
     G.ana = [ax, MT, aw, T];
     G.sd = [colX, MT, cw, T - fh - 16]; G.fx = [colX, topB - fh, cw, fh];
     var w = 200, xs = [M, M + 240, M + 480, M + 744, M + 984, M + 1224];   // 6 x 200: 40 between modules, 64 between X and Y
     G.osc = xs.map(function (x) { return [x, oscY, w, oscH]; }); G.oscRow = true; G.oscGlass = oscH - 96;
     G.rings = [0, 1, 3, 4].map(function (i) { return [xs[i] + w + 20, oscY + 14 + G.oscGlass / 2]; }); G.ringGap = 20;
-    // L and R stay BG (12 px) apart wherever they enter a module; the lanes rise straight into the bottom of Effects
-    // (R further right, so the two never cross), then run left through the analyser into the Oscilloscope frame.
-    var fx = G.fx, yL = fx[1] + Math.round(fx[3] * 0.55), yR = yL - BG, lL = oscY - 30, lR = lL + BG, sR = M + fw0;
+    // L and R stay BG (12 px) apart wherever they enter a module. The lanes rise straight into the bottom of Effects (R further
+    // right, so the two never cross). Effects returns under the analyser (band y topB + 12 / 24) and up into the notch cut in the
+    // Oscilloscope frame below Hue Spd, enters the frame there, and the frame feeds the analyser from the notch.
+    var lL = oscY - 30, lR = lL + BG, nt = G.ctl[1] + 396, wx = G.ctl[0] - 6, fb0 = topB;
+    G.notch = [wx, nt, M + fw0, topB];
+    var ex = [colX + 36, colX + 24], band = [topB + 24, topB + 12], nx = [wx + 24, wx + 36], yE = [topB - 60, topB - 72], yS = [topB - 120, topB - 132];
     var xL = colX + cw - 60, xR = xL + BG;
     G.drops = xs.map(function (x, i) { return 'M' + (x + w - 34) + ' ' + oscY + 'V' + (i < 3 ? lL : lR); });
     G.dropX = xs.map(function (x) { return x + w - 34; }); G.laneY = [lL, lR];
-    G.busTail = [
-      'H' + xL + 'V' + (topB + 7) + 'M' + colX + ' ' + yL + 'H' + (ax + aw + 7) + 'M' + ax + ' ' + yL + 'H' + (sR + 7),
-      'H' + xR + 'V' + (topB + 7) + 'M' + colX + ' ' + yR + 'H' + (ax + aw + 7) + 'M' + ax + ' ' + yR + 'H' + (sR + 7)];
-    G.heads = [up(xL, topB + 1) + left(ax + aw + 1, yL) + left(sR + 1, yL), up(xR, topB + 1) + left(ax + aw + 1, yR) + left(sR + 1, yR)];
+    G.busTail = [0, 1].map(function (c) {
+      return 'H' + [xL, xR][c] + 'V' + (topB + 7) + 'M' + ex[c] + ' ' + fb0 + 'V' + band[c] + 'H' + nx[c] + 'V' + yE[c] + 'H' + (wx + 7) +
+        'M' + wx + ' ' + yS[c] + 'H' + (ax - 7);
+    });
+    G.heads = [0, 1].map(function (c) { return up([xL, xR][c], topB + 1) + left(wx + 1, yE[c]) + right(ax, yS[c]); });
     // External input (Mic, Line, File): Source & Display feeds Effects directly below it.
     var sdB = G.sd[1] + G.sd[3], fxT = G.fx[1], xi = colX + cw - 100;
     G.inPaths = ['M' + xi + ' ' + sdB + 'V' + (fxT - 7), 'M' + (xi + BG) + ' ' + sdB + 'V' + (fxT - 7)];
@@ -524,20 +528,24 @@ function geometry(lk, H) {
     // Source & Display under the analyser; the osc rows below Effects, leaving a channel on their right for the lanes.
     var rw = 248, gp = 16, fw1 = 900 - 2 * M - gp - rw, bz1 = fw1 - 18 - 12 - CC - 12, T1 = bz1 + 36, rx = M + fw1 + gp;
     var fy = MT + T1 + 24, fh1 = 182, mw = 172, mg = 32, px = [M, M + mw + mg, M + 2 * (mw + mg)];
-    var laneL = fy + fh1 + 20, r1 = laneL + 22, laneR = r1 + 168 + 20, r2 = laneR + 24, sb = MT + T1, yA = MT + T1 - 40;
+    var laneL = fy + fh1 + 20, r1 = laneL + 22, laneR = r1 + 168 + 20, r2 = laneR + 24;
     G.W = 900; G.scope = [M, MT, fw1, T1]; G.bez = [M + 18, MT + 20, bz1]; G.ctl = [M + 18 + bz1 + 12, MT + 20, CC, bz1];
     G.ana = [rx, MT, rw, T1]; G.fx = [M, fy, fw1, fh1]; G.sd = [rx, fy, rw, H - M - fy];
     G.osc = [[px[0], r1], [px[1], r1], [px[2], r1], [px[0], r2], [px[1], r2], [px[2], r2]].map(function (p) { return [p[0], p[1], mw, 168]; }); G.oscRow = false;
     G.rings = [[px[0] + mw + mg / 2, r1 + 26], [px[1] + mw + mg / 2, r1 + 26], [px[0] + mw + mg / 2, r2 + 26], [px[1] + mw + mg / 2, r2 + 26]]; G.ringGap = mg / 2;
     // Lanes rise in the channel right of the osc rows into the bottom of Effects (R further right, so they never cross);
     // Effects feeds the Oscilloscope above it, and the Oscilloscope feeds the analyser (below the control column).
-    var xL = px[2] + mw + 20, xR = xL + BG, fb = fy + fh1;
+    // OSC 1's lane rises on the line of OSC 3's right border. Effects feeds the frame through the notch cut below Hue Spd,
+    // and the frame feeds the analyser from the same notch.
+    var xL = px[2] + mw, xR = xL + BG, fb = fy + fh1, nt1 = G.ctl[1] + 396, wx1 = G.ctl[0] - 6, fbot = MT + T1;
+    G.notch = [wx1, nt1, M + fw1, fbot];
+    var nx1 = [wx1 + 24, wx1 + 36], yE1 = [fbot - 40, fbot - 52], yS1 = [fbot - 100, fbot - 112];
     G.drops = [0, 1, 2, 3, 4, 5].map(function (i) { var x = px[i % 3] + Math.round(mw * 0.6); return i < 3 ? 'M' + x + ' ' + r1 + 'V' + laneL : 'M' + x + ' ' + r2 + 'V' + laneR; });
     G.dropX = [0, 1, 2, 3, 4, 5].map(function (i) { return px[i % 3] + Math.round(mw * 0.6); }); G.laneY = [laneL, laneR];
-    G.busTail = [
-      'H' + xL + 'V' + (fb + 7) + 'M270 ' + fy + 'V' + (sb + 7) + 'M' + (M + fw1) + ' ' + yA + 'H' + (rx - 6),
-      'H' + xR + 'V' + (fb + 7) + 'M' + (270 + BG) + ' ' + fy + 'V' + (sb + 7) + 'M' + (M + fw1) + ' ' + (yA - BG) + 'H' + (rx - 6)];
-    G.heads = [up(xL, fb + 1) + up(270, sb + 1) + right(rx, yA), up(xR, fb + 1) + up(270 + BG, sb + 1) + right(rx, yA - BG)];
+    G.busTail = [0, 1].map(function (c) {
+      return 'H' + [xL, xR][c] + 'V' + (fb + 7) + 'M' + nx1[c] + ' ' + fy + 'V' + yE1[c] + 'H' + (wx1 + 7) + 'M' + wx1 + ' ' + yS1[c] + 'H' + (rx - 7);
+    });
+    G.heads = [0, 1].map(function (c) { return up([xL, xR][c], fb + 1) + left(wx1 + 1, yE1[c]) + right(rx, yS1[c]); });
     // External input (Mic, Line, File): Source & Display feeds Effects across the gap to its left.
     var fr = M + fw1, yi = fy + 52;
     G.inPaths = ['M' + rx + ' ' + yi + 'H' + (fr + 7), 'M' + rx + ' ' + (yi - BG) + 'H' + (fr + 7)];
@@ -563,6 +571,9 @@ function build(lk, H) {
   scope.cssW = bs - 24; scope.width = scope.height = scope.cssW * 2;
   sx = scope.getContext('2d'); sx.fillStyle = '#050406'; sx.fillRect(0, 0, scope.width, scope.height);
   buildScopeCtl(G);
+  // The notch: the frame outline steps in below Hue Spd to the screen's edge (drawn over the frame border in the panel colour).
+  var nq = G.notch;
+  el('div', at(nq[0], nq[1], nq[2] - nq[0] + 1, nq[3] - nq[1] + 1) + ';box-sizing:border-box;border-left:1px solid ' + P.inkMute + ';border-top:1px solid ' + P.inkMute + ';border-top-left-radius:3px;background:#242324;pointer-events:none');
 
   // Stereo spectrum analyser: L to the left of the centre line, R to the right, frequency rising up the strip.
   var a = G.ana;
