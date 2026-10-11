@@ -512,7 +512,7 @@ function geometry(lk, H) {
     var lL = oscY - 30, lR = lL + BG, nt = G.ctl[1] + 396, wx = G.ctl[0] - 6;
     G.notch = [wx, nt, sX + fw0, topB];
     var yE = [topB - 60, topB - 72], yS = [topB - 120, topB - 132];
-    var xL = colX + cw - 60, xR = xL + BG;
+    var xR = xs[5] + w - 34, xL = xR - BG;   // the Y lane rises into Effects on the line of OSC 6's drop; X runs BG to its left
     G.drops = xs.map(function (x, i) { return 'M' + (x + w - 34) + ' ' + oscY + 'V' + (i < 3 ? lL : lR); });
     G.dropX = xs.map(function (x) { return x + w - 34; }); G.laneY = [lL, lR];
     G.busTail = [0, 1].map(function (c) {
