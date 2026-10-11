@@ -28,7 +28,8 @@
    fundamental -> Chord -> Chord 2 (wave, gain, detune, multiple / divide 1-13). A chord layer either adds into its channel
    or, with FM on (the ring between it and its mother), frequency-modulates its mother and leaves the mix.
    Effects: Filter -> Band Pass -> Saturation -> Chorus, each bypassable. Output: 0.2 gain, then the original's fatigue guard.
-   Panel: osc 1-3 = X (left, red), osc 4-6 = Y (right, green). The panel fills the window; L9 landscape, L9v portrait. */
+   Panel: osc 1-3 = X (left, red), osc 4-6 = Y (right, green). Two windows: Source & Display, Effects (with Master Gain, Time,
+   Fast, Detune). The panel is 4:3 (L9 landscape, 1440 x 1080) or 3:4 (L9v portrait, 900 x 1200). */
 
 var REPORT = [];
 window.addEventListener('error', function (e) { REPORT.push('ERROR ' + e.message + ' @' + e.lineno); });
@@ -68,7 +69,6 @@ var PD = {
   persistence: { min: 0.01, max: 1, def: 0.24, step: 0, log: true, logMid: 0.7, f: function (v) { return v.toFixed(3); } },
   hold: { min: 0, max: 60, def: 0, step: 1, f: function (v) { return v + ' frames'; } },
   gain: { min: 0.1, max: 12.5, def: 0.69, step: 0.01, f: function (v) { return v.toFixed(2) + '×'; } },
-  lineWidth: { min: 0.5, max: 15, def: 1.5, step: 0.1, f: function (v) { return v.toFixed(1) + ' px'; } },
   masterTime: { min: 0.0001, max: 1, def: 1, step: 0, log: true, f: function (v) { return (v < 0.01 ? v.toFixed(4) : v.toFixed(3)) + '×'; } },
   masterTimeFast: { min: 1, max: 1000, def: 1, step: 0, log: true, f: function (v) { return v.toFixed(2) + '×'; } },
   masterDetune: { min: 0, max: 1, def: 1, step: 0.01, f: function (v) { return v.toFixed(2); } },
@@ -100,7 +100,7 @@ var steps = function (d) { var n = d.step ? Math.round((d.max - d.min) / d.step)
 // ---------------------------------------------------------------- state
 var WAVES = ['Off', 'Sine', 'Triangle', 'Sawtooth', 'Square'];
 var WAVE_IDS = { sine: 1, triangle: 2, sawtooth: 3, square: 4 };
-var MASTER_KEYS = ['rotation', 'persistence', 'hold', 'gain', 'lineWidth', 'masterTime', 'masterTimeFast', 'masterDetune'];
+var MASTER_KEYS = ['rotation', 'persistence', 'hold', 'gain', 'masterTime', 'masterTimeFast', 'masterDetune'];
 function defaultOsc() {
   return [
     { wave: 1, gain: 1, freq: 220, phase: 0, speed: 0 }, { wave: 0, gain: 0.5, det: 0, mul: 1, div: 1, fm: false }, { wave: 0, gain: 0.5, det: 0, mul: 1, div: 1, fm: false },
@@ -494,13 +494,14 @@ var RING_OSC = [1, 2, 4, 5];   // the chord layer each FM ring belongs to: it mo
 function geometry(lk, H) {
   var G = { lk: lk, H: H };
   if (lk === 'land') {
-    var oscH = 112, oscY = H - 24 - oscH, top = 52, topB = oscY - 52, T = topB - top;
-    var s = Math.min(T, 628), ax = 32 + s + 24, aw = 140, colX = ax + aw + 24, cw = 1408 - colX, h3 = Math.floor((T - 32) / 3);
+    // 1440 x 1080: the scope is as tall as the space above the osc row; the column beside it keeps what is left.
+    var oscH = 140, oscY = H - 24 - oscH, top = 52, topB = oscY - 52, s = topB - top, fh = 290;
+    var ax = 32 + s + 24, aw = 140, colX = ax + aw + 24, cw = 1408 - colX;
     var xs = [32, 260, 488, 764, 992, 1220], w = 188;
-    G.W = 1440; G.scope = [32, topB - s, s]; G.ana = [ax, top, aw, T];
-    G.mute = [colX, top, cw, h3]; G.sdm = [colX, top + h3 + 16, cw, h3]; G.fx = [colX, top + 2 * (h3 + 16), cw, T - 2 * (h3 + 16)];
+    G.W = 1440; G.scope = [32, top, s]; G.ana = [ax, top, aw, s];
+    G.sd = [colX, top, cw, s - fh - 16]; G.fx = [colX, topB - fh, cw, fh];
     G.osc = xs.map(function (x) { return [x, oscY, w, oscH]; }); G.oscRow = true;
-    G.rings = [[240, oscY + 26], [468, oscY + 26], [972, oscY + 26], [1200, oscY + 26]]; G.ringGap = 20;
+    G.rings = [[240, oscY + 30], [468, oscY + 30], [972, oscY + 30], [1200, oscY + 30]]; G.ringGap = 20;
     var fx = G.fx, yR = fx[1] + Math.round(fx[3] * 0.42), yL = fx[1] + Math.round(fx[3] * 0.62), lL = oscY - 30, lR = oscY - 16, sR = 32 + s;
     G.drops = xs.map(function (x, i) { return 'M' + (x + w - 34) + ' ' + oscY + 'V' + (i < 3 ? lL : lR); });
     G.bus = [
@@ -510,19 +511,22 @@ function geometry(lk, H) {
     G.heads = [lh(1409, yL) + lh(ax + aw + 1, yL) + lh(sR + 1, yL), lh(1409, yR) + lh(ax + aw + 1, yR) + lh(sR + 1, yR)];
     G.labels = [[40, lL - 4, 'X · L', P.X], [872, lR - 4, 'Y · R', P.Y]];
   } else {
-    var e = Math.max(0, (H - 1200) / 4), yS = 576 + e, laneL = yS + 164 + 24 + e, r1 = laneL + 24, laneR = r1 + 168 + 20 + e, r2 = laneR + 24;
-    var avail = H - 24 - 576 - 24, mh = Math.round(avail * 0.45), fy = 576 + mh + 24, px = [32, 210, 388];
+    // 900 x 1200: Effects under the scope, Source & Display under the analyser, the osc rows below Effects.
+    var fy = 576, fh = 182, laneL = fy + fh + 20, r1 = laneL + 22, laneR = r1 + 168 + 18, r2 = laneR + 22, px = [32, 210, 388];
     G.W = 900; G.scope = [32, 52, 500]; G.ana = [572, 52, 248, 500];
-    G.sdm = [32, yS, 500, 164]; G.mute = [572, 576, 248, mh]; G.fx = [572, fy, 248, H - 24 - fy];
+    G.fx = [32, fy, 500, fh]; G.sd = [572, fy, 248, H - 24 - fy];
     G.osc = [[32, r1], [210, r1], [388, r1], [32, r2], [210, r2], [388, r2]].map(function (p) { return [p[0], p[1], 144, 168]; }); G.oscRow = false;
     G.rings = [[193, r1 + 26], [371, r1 + 26], [193, r2 + 26], [371, r2 + 26]]; G.ringGap = 17;
-    var mb = 576 + mh, ab = 552, fb = H - 24;
+    // Buses climb the gap right of the osc rows into Effects (R outer and higher, so they never cross),
+    // then Effects feeds the scope above it and the scope feeds the analyser.
+    var yR = fy + 60, yL = fy + 120;
     G.drops = [0, 1, 2, 3, 4, 5].map(function (i) { var x = px[i % 3] + 90; return i < 3 ? 'M' + x + ' ' + r1 + 'V' + laneL : 'M' + x + ' ' + r2 + 'V' + laneR; });
-    var up = function (xx, yy) { return 'M' + xx + ' ' + yy + 'l-4 6h8z'; }, left = function (xx, yy) { return 'M' + xx + ' ' + yy + 'l6 -4v8z'; };
+    var up = function (xx, yy) { return 'M' + xx + ' ' + yy + 'l-4 6h8z'; }, left = function (xx, yy) { return 'M' + xx + ' ' + yy + 'l6 -4v8z'; },
+        right = function (xx, yy) { return 'M' + xx + ' ' + yy + 'l-6 -4v8z'; };
     G.bus = [
-      'M122 ' + laneL + 'H560V' + (H - 16) + 'H784V' + (fb + 7) + 'M784 ' + fy + 'V' + (mb + 7) + 'M784 576V' + (ab + 7) + 'M572 470H539',
-      'M122 ' + laneR + 'H548V' + (H - 8) + 'H800V' + (fb + 7) + 'M800 ' + fy + 'V' + (mb + 7) + 'M800 576V' + (ab + 7) + 'M572 490H539'];
-    G.heads = [up(784, fb + 1) + up(784, mb + 1) + up(784, ab + 1) + left(533, 470), up(800, fb + 1) + up(800, mb + 1) + up(800, ab + 1) + left(533, 490)];
+      'M122 ' + laneL + 'H548V' + yL + 'H539M266 ' + fy + 'V559M532 470H566',
+      'M122 ' + laneR + 'H560V' + yR + 'H539M298 ' + fy + 'V559M532 490H566'];
+    G.heads = [left(533, yL) + up(266, 553) + right(572, 470), left(533, yR) + up(298, 553) + right(572, 490)];
     G.labels = [[40, laneL - 4, 'X · L', P.X], [40, laneR - 4, 'Y · R', P.Y]];
   }
   return G;
@@ -554,8 +558,7 @@ function build(lk, H) {
   ana.lv = [new Float32Array(400), new Float32Array(400)]; ana.pk = [new Float32Array(400), new Float32Array(400)];
 
   buildOscillators(G);
-  buildMute(G.mute);
-  buildSDM(G.sdm);
+  buildSD(G.sd);
   buildFX(G.fx);
 
   // Routing layer (redrawn when FM or waves change).
@@ -574,17 +577,18 @@ function buildOscillators(G) {
     var x = p[0], y = p[1], w = p[2], main = i % 3 === 0, col = i < 3 ? P.X : P.Y;
     var O = function () { return state.osc[i]; };
     sec(x, y, w, p[3], (main ? 'Osc ' + (i + 1) + ' · ' + (i < 3 ? 'X' : 'Y') + ' Main' : 'Osc ' + (i + 1)), { line: col, tab: col });
-    var g = glass(x + 10, y + 14, w - 20, 24, 'Oscillator ' + (i + 1));
+    var g = glass(x + 10, y + 14, w - 20, G.oscRow ? 32 : 24, 'Oscillator ' + (i + 1));
     g.g.style.cursor = 'pointer';
     g.g.title = 'Click: Off, Sine, Triangle, Sawtooth, Square';
     g.g.addEventListener('click', function () { var o = state.osc[i]; o.wave = (o.wave + 1) % 5; drawWave(i); drawRoutes(); });
-    var pos = G.oscRow ? [0, 1, 2, 3].map(function (k) { return [x + 32 + k * (w - 64) / 3, y + 72]; })
+    var pos = G.oscRow ? [0, 1, 2, 3].map(function (k) { return [x + 32 + k * (w - 64) / 3, y + 84]; })
                        : [[x + 44, y + 70], [x + 100, y + 70], [x + 44, y + 128], [x + 100, y + 128]];
+    var ksz = G.oscRow ? 22 : 20;
     var ks = main
-      ? [knob(pos[0][0], pos[0][1], 20, 'Gain', O, 'gain', PD.mgain), knob(pos[1][0], pos[1][1], 20, 'Pitch', O, 'freq', PD.freq),
-         knob(pos[2][0], pos[2][1], 20, 'Phase', O, 'phase', PD.phase), knob(pos[3][0], pos[3][1], 20, 'Spin', O, 'speed', PD.speed)]
-      : [knob(pos[0][0], pos[0][1], 20, 'Gain', O, 'gain', PD.cgain), knob(pos[1][0], pos[1][1], 20, 'Detune', O, 'det', PD.det),
-         knob(pos[2][0], pos[2][1], 20, 'Mult', O, 'mul', PD.mul), knob(pos[3][0], pos[3][1], 20, 'Div', O, 'div', PD.div)];
+      ? [knob(pos[0][0], pos[0][1], ksz, 'Gain', O, 'gain', PD.mgain), knob(pos[1][0], pos[1][1], ksz, 'Pitch', O, 'freq', PD.freq),
+         knob(pos[2][0], pos[2][1], ksz, 'Phase', O, 'phase', PD.phase), knob(pos[3][0], pos[3][1], ksz, 'Spin', O, 'speed', PD.speed)]
+      : [knob(pos[0][0], pos[0][1], ksz, 'Gain', O, 'gain', PD.cgain), knob(pos[1][0], pos[1][1], ksz, 'Detune', O, 'det', PD.det),
+         knob(pos[2][0], pos[2][1], ksz, 'Mult', O, 'mul', PD.mul), knob(pos[3][0], pos[3][1], ksz, 'Div', O, 'div', PD.div)];
     ui.osc.push({ g: g, k: ks });
   });
   // FM rings: lit = the oscillator on the right frequency-modulates the one on its left and leaves the mix.
@@ -609,16 +613,38 @@ function buildOscillators(G) {
   });
 }
 
-function buildMute(m) {
-  var x = m[0], y = m[1], w = m[2], h = m[3], wide = w >= 400, kw = wide ? 56 : 68, st = wide ? 64 : 76;
-  sec(x, y, w, h, 'Mute · Freeze · Presets');
-  ui.playK = key(x + 16, y + 18, kw, 28, '', 'off', { glyph: '▶', fs: 13, below: 'Play', aria: 'Play', onClick: play });
-  ui.stopK = key(x + 16 + st, y + 18, kw, 28, '', 'off', { glyph: '■', fs: 12, below: 'Stop', aria: 'Stop', onClick: stop });
-  ui.recK = key(x + 16 + 2 * st, y + 18, kw, 28, '', 'off', { glyph: '●', fs: 12, below: 'Rec', aria: 'Record', onClick: toggleRec });
-  ui.mute = key(x + 16, y + 80, kw, 28, 'Mute', 'off', { below: 'Audio', onClick: function () { state.mute = !state.mute; ui.mute.set(state.mute ? 'rec' : 'off'); setGain(); } });
-  ui.freeze = key(x + 16 + st, y + 80, kw, 28, 'Freeze', 'off', { below: 'Display', onClick: function () { state.freeze = !state.freeze; ui.freeze.set(state.freeze ? 'on' : 'off'); } });
-  ui.hold = key(x + 16 + 2 * st, y + 80, kw, 28, 'Hold', 'off', { below: 'Spin', onClick: function () { state.hold = !state.hold; ui.hold.set(state.hold ? 'on' : 'off'); } });
-  var lx = wide ? x + 232 : x + 16, ly = wide ? y + 18 : y + 140, lw = wide ? w - 248 : w - 32, lh = wide ? h - 62 : h - 184;
+// Source & Display: transport, Mute / Freeze / Hold, input, display mode, trace knobs, then the preset list in what is left.
+// Wide (landscape column): one row of six keys and five knobs in a row. Narrow (portrait column): 3 + 3 keys, 3 + 2 knobs.
+function buildSD(m) {
+  var x = m[0], y = m[1], w = m[2], h = m[3], iw = w - 32, wide = w >= 340;
+  sec(x, y, w, h, 'Source & Display');
+  var tk = wide ? 48 : 64, tg = wide ? (iw - 6 * tk - 16) / 4 : (iw - 3 * tk) / 2;
+  var tp = function (j) {
+    if (!wide) return [x + 16 + (j % 3) * (tk + tg), y + 18 + (j > 2 ? 62 : 0)];
+    return [j < 3 ? x + 16 + j * (tk + tg) : x + 16 + iw - (6 - j) * tk - (5 - j) * tg, y + 18];
+  };
+  var T = function (j, label, led, o) { var p = tp(j); return key(p[0], p[1], tk, 28, label, led, o); };
+  ui.playK = T(0, '', 'off', { glyph: '▶', fs: 13, below: 'Play', aria: 'Play', onClick: play });
+  ui.stopK = T(1, '', 'off', { glyph: '■', fs: 12, below: 'Stop', aria: 'Stop', onClick: stop });
+  ui.recK = T(2, '', 'off', { glyph: '●', fs: 12, below: 'Rec', aria: 'Record', onClick: toggleRec });
+  ui.mute = T(3, 'Mute', 'off', { below: 'Audio', onClick: function () { state.mute = !state.mute; ui.mute.set(state.mute ? 'rec' : 'off'); setGain(); } });
+  ui.freeze = T(4, 'Freeze', 'off', { below: 'Display', onClick: function () { state.freeze = !state.freeze; ui.freeze.set(state.freeze ? 'on' : 'off'); } });
+  ui.hold = T(5, 'Hold', 'off', { below: 'Spin', onClick: function () { state.hold = !state.hold; ui.hold.set(state.hold ? 'on' : 'off'); } });
+
+  var r = y + (wide ? 80 : 142), k4 = Math.floor((iw - 18) / 4), p4 = function (j, yy) { return [x + 16 + j * (k4 + 6), yy]; };
+  ui.src = radio([0, 1, 2, 3].map(function (j) { return p4(j, r); }), k4, 22, ['Tone', 'Mic', 'Line', 'File'], function (i) { setSource(['tone', 'mic', 'line', 'file'][i]); });
+  ui.mode = radio([p4(0, r + 30), p4(1, r + 30)], k4, 22, ['Wave', 'XY'], function (i) { state.mode = i ? 'xy' : 'waveform'; ui.mode.select(i); });
+  ui.grid = key(p4(2)[0], r + 30, k4, 22, 'Grid', 'on', { fs: 9, onClick: function () { state.grid = !state.grid; ui.grid.set(state.grid ? 'on' : 'off'); } });
+  ui.glow = key(p4(3)[0], r + 30, k4, 22, 'Glow', 'on', { fs: 9, onClick: function () { state.glow = !state.glow; ui.glow.set(state.glow ? 'on' : 'off'); } });
+
+  var Sg = function () { return state; }, ky = r + 96;
+  var DK = [['Hue', 'hue'], ['Hue Spd', 'hueSpeed'], ['Rotate', 'rotation'], ['Persist', 'persistence'], ['Hold', 'hold']];
+  DK.forEach(function (d, k) {
+    var p = wide ? [x + 16 + iw * (k + 0.5) / 5, ky] : k < 3 ? [x + 16 + iw * (k + 0.5) / 3, ky] : [x + 16 + iw * (k - 2) / 3, ky + 60];
+    knob(p[0], p[1], 22, d[0], Sg, d[1], PD[d[1]], { fs: 8 });
+  });
+
+  var lx = x + 16, ly = (wide ? ky : ky + 60) + 54, lw = iw, lh = y + h - 44 - ly;
   presetLines = Math.max(1, Math.floor((lh - 10) / 20));
   var band = 5 + Math.floor(presetLines / 2) * 20;
   pdisp = el('div', at(lx, ly, lw, 10 + presetLines * 20) + ';box-sizing:border-box;padding:5px 10px 0;border-radius:4px;background:linear-gradient(to bottom,transparent ' + band + 'px,rgba(175,120,237,0.22) ' + band + 'px ' + (band + 20) + 'px,transparent ' + (band + 20) + 'px),#050406;' +
@@ -639,37 +665,32 @@ function buildMute(m) {
 }
 function loadSel() { applyPreset(PRESETS[presetSel]); syncUI(); }
 
-function buildSDM(m) {
-  var x = m[0], y = m[1], w = m[2], h = m[3];
-  sec(x, y, w, h, 'Source · Display · Master');
-  ui.src = radio([0, 1, 2, 3].map(function (j) { return [x + 16 + j * 50, y + 18]; }), 44, 22, ['Tone', 'Mic', 'Line', 'File'], function (i) { setSource(['tone', 'mic', 'line', 'file'][i]); });
-  ui.mode = radio([[x + 226, y + 18], [x + 276, y + 18]], 44, 22, ['Wave', 'XY'], function (i) { state.mode = i ? 'xy' : 'waveform'; ui.mode.select(i); });
-  ui.grid = key(x + 342, y + 18, 44, 22, 'Grid', 'on', { fs: 9, onClick: function () { state.grid = !state.grid; ui.grid.set(state.grid ? 'on' : 'off'); } });
-  ui.glow = key(x + 392, y + 18, 44, 22, 'Glow', 'on', { fs: 9, onClick: function () { state.glow = !state.glow; ui.glow.set(state.glow ? 'on' : 'off'); } });
-  var Sg = function () { return state; }, sp = (w - 32) / 10, cy = y + h - 50, kx = function (k) { return x + 16 + sp * (k + 0.5); };
-  cl((kx(0) + kx(2)) / 2, cy - 38, sp * 3, 'Display', PRINT(8));
-  cl((kx(3) + kx(9)) / 2, cy - 38, sp * 7, 'Master', PRINT(8));
-  [['Hue', 'hue'], ['Hue Spd', 'hueSpeed'], ['Rotate', 'rotation'], ['Persist', 'persistence'], ['Hold', 'hold'], ['Gain', 'gain'],
-   ['Width', 'lineWidth'], ['Time', 'masterTime'], ['Fast', 'masterTimeFast'], ['Detune', 'masterDetune']].forEach(function (d, k) {
-    knob(kx(k), cy, 22, d[0], Sg, d[1], PD[d[1]], { fs: 8 });
-  });
-}
-
+// Effects: the four stages with their Bypass keys, plus the Master Gain, Time, Fast and Detune.
+// Strip (portrait, under the scope): stages and Master side by side. Block (landscape column): Master in a row below.
 var FXDEF = [['Filter', 'filterAmount', 'filter'], ['Band Pass', 'bandpassFreq', 'bandpass'], ['Saturate', 'saturation', 'saturation'], ['Chorus', 'chorusVoices', 'chorus']];
+var MASTERDEF = [['Gain', 'gain'], ['Time', 'masterTime'], ['Fast', 'masterTimeFast'], ['Detune', 'masterDetune']];
 function buildFX(m) {
-  var x = m[0], y = m[1], w = m[2], h = m[3], wide = w >= 400;
+  var x = m[0], y = m[1], w = m[2], h = m[3], strip = w / h > 2;
   sec(x, y, w, h, 'Effects');
-  ui.fxScreen = glass(x + 16, y + 18, w - 32, wide ? 30 : 34, 'Filter and band-pass response');
-  var Fx = function () { return state.fx; };
+  var fw = strip ? 248 : w - 32, sh = strip ? 32 : 40, cy = y + 18 + sh + 44, step = fw / 4, bw = strip ? 54 : 60;
+  ui.fxScreen = glass(x + 16, y + 18, fw, sh, 'Filter and band-pass response');
+  var Fx = function () { return state.fx; }, Sg = function () { return state; };
   ui.byp = [];
   FXDEF.forEach(function (d, k) {
-    var cx, cy;
-    if (wide) { cx = x + 16 + (w - 32) * (k + 0.5) / 4; cy = y + h - 76; }
-    else { cx = x + 16 + (w - 32) * ((k % 2) + 0.5) / 2; cy = y + 100 + Math.floor(k / 2) * 114; }
+    var cx = x + 16 + step * (k + 0.5);
     knob(cx, cy, 30, d[0], Fx, d[1], PD[d[1]], { after: drawFx });
-    var b = key(cx - 30, cy + 46, 60, 20, 'Bypass', 'byp', { fs: 8, onClick: function () { state.fx.byp[d[2]] = !state.fx.byp[d[2]]; syncByp(); drawFx(); } });
-    ui.byp.push(b);
+    ui.byp.push(key(cx - bw / 2, cy + 46, bw, 20, 'Bypass', 'byp', { fs: 8, onClick: function () { state.fx.byp[d[2]] = !state.fx.byp[d[2]]; syncByp(); drawFx(); } }));
   });
+  var mx, mw, my;
+  if (strip) {
+    el('div', at(x + 16 + fw + 6, y + 18, 1, h - 36) + ';background:' + P.inkMute + ';opacity:0.5');
+    mx = x + 16 + fw + 12; mw = x + w - 16 - mx; my = cy;
+    cl(mx + mw / 2, y + 30, mw, 'Master', PRINT(8));
+  } else {
+    mx = x + 16; mw = fw; my = cy + 122;
+    cl(mx + mw / 2, my - 40, mw, 'Master', PRINT(8));
+  }
+  MASTERDEF.forEach(function (d, k) { knob(mx + mw * (k + 0.5) / 4, my, 22, d[0], Sg, d[1], PD[d[1]], { fs: 8 }); });
 }
 function syncByp() {
   FXDEF.forEach(function (d, k) { var on = !state.fx.byp[d[2]]; ui.byp[k].set(on ? 'on' : 'byp'); ui.byp[k].txt.textContent = on ? 'Active' : 'Bypass'; ui.byp[k].b.setAttribute('aria-label', d[0] + (on ? ' active' : ' bypassed')); });
@@ -780,7 +801,7 @@ function drawAnalyzer(dt) {
   c.fillStyle = P.X; c.textAlign = 'left'; c.fillText('L', 8, 6);
   c.fillStyle = P.Y; c.textAlign = 'right'; c.fillText('R', w - 8, 6);
 }
-var realT = 0;
+var realT = 0, LINE_W = 1.5;   // trace width is fixed (the original's default); Width is not a control here
 // The original's renderer: persistence fade (with Hold), grid, then the trace in Trace Hue.
 function drawScope() {
   var c = sx, W = scope.width, H = scope.height, k = W / 900, st = state, SN1 = E.SN - 1, i, n;
@@ -792,9 +813,9 @@ function drawScope() {
     for (i = 1; i < 10; i++) { var p = Math.round(i * W / 10) + 0.5; c.beginPath(); c.moveTo(p, 0); c.lineTo(p, H); c.moveTo(0, p); c.lineTo(W, p); c.stroke(); }
     c.strokeStyle = 'rgba(207,171,246,0.16)'; c.beginPath(); c.moveTo(W / 2, 0); c.lineTo(W / 2, H); c.moveTo(0, H / 2); c.lineTo(W, H / 2); c.stroke();
   }
-  var hue = ((st.hue + st.hueSpeed * realT) % 360 + 360) % 360, wf = (st.lineWidth - 0.5) / 14.5;
+  var hue = ((st.hue + st.hueSpeed * realT) % 360 + 360) % 360, wf = (LINE_W - 0.5) / 14.5;
   var col = 'hsla(' + hue.toFixed(1) + ',90%,60%,' + (1 - 0.5 * wf).toFixed(3) + ')';
-  c.strokeStyle = col; c.lineWidth = st.lineWidth * k; c.lineJoin = 'round'; c.lineCap = 'round';
+  c.strokeStyle = col; c.lineWidth = LINE_W * k; c.lineJoin = 'round'; c.lineCap = 'round';
   c.globalCompositeOperation = 'lighter'; c.shadowBlur = st.glow ? 14 * k : 0; c.shadowColor = col;
   if (st.mode === 'xy') {
     n = 1024; var i0 = (E.sw - n) & SN1;
@@ -832,7 +853,7 @@ var layoutKey = null, layoutH = 0, rebuildT = 0;
 function wanted() {
   var h = location.hash, ww = window.innerWidth, wh = window.innerHeight;
   var lk = h === '#portrait' ? 'port' : h === '#landscape' ? 'land' : (wh > ww ? 'port' : 'land');
-  var H = lk === 'land' ? clamp(Math.round(1440 * wh / ww), 740, 1000) : clamp(Math.round(900 * wh / ww), 1200, 1700);
+  var H = lk === 'land' ? 1080 : 1200;   // fixed 4:3 (1440 x 1080) or 3:4 (900 x 1200), letterboxed to the window
   return { lk: lk, H: H };
 }
 function scaleToWindow() {
@@ -878,7 +899,7 @@ if (location.hash === '#selftest') {
     out.dottedDrops = routeSvg.innerHTML.split('stroke-dasharray:1 4').length - 1;
     out.land = { knobs: document.querySelectorAll('[role="slider"]').length, buttons: document.querySelectorAll('button').length, W: GEO.W, H: GEO.H };
     ui.osc[1].g.g.click(); out.waveCycled = state.osc[1].wave;
-    build('port', 1500); out.port = { knobs: document.querySelectorAll('[role="slider"]').length, buttons: document.querySelectorAll('button').length, W: GEO.W, H: GEO.H, dotted: routeSvg.innerHTML.split('stroke-dasharray:1 4').length - 1 };
+    build('port', 1200); out.port = { knobs: document.querySelectorAll('[role="slider"]').length, buttons: document.querySelectorAll('button').length, W: GEO.W, H: GEO.H, dotted: routeSvg.innerHTML.split('stroke-dasharray:1 4').length - 1 };
     build(layoutKey, layoutH);
     out.errors = REPORT;
     document.getElementById('__report').textContent = JSON.stringify(out);
