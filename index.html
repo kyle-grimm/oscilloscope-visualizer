@@ -12,6 +12,8 @@
   #panel { position: absolute; left: 0; top: 0; width: 100%; height: 100%; background: linear-gradient(to bottom, #2b2a2d, #242324 48px); }
   button { outline: none; }
   button:focus-visible { box-shadow: 0 0 0 2px #cfabf6 !important; }
+  .plist::-webkit-scrollbar { display: none; }
+  .plist [data-i]:hover { color: #ffffff; }
   #tip { position: absolute; display: none; padding: 3px 7px; border-radius: 3px; background: #050406; border: 1px solid #515053; color: #cfabf6;
     font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; white-space: nowrap; pointer-events: none; z-index: 10; transform: translateX(-50%); }
 </style>
@@ -28,15 +30,15 @@
    fundamental -> Chord -> Chord 2 (wave, gain, detune, multiple / divide 1-13). A chord layer either adds into its channel
    or, with FM on (the ring between it and its mother), frequency-modulates its mother and leaves the mix.
    Effects: Filter -> Band Pass -> Saturation -> Chorus, each bypassable. Output: 0.2 gain, then the original's fatigue guard.
-   Panel: osc 1-3 = X (left, red), osc 4-6 = Y (right, green). Two windows: Source & Display, Effects (with Master Gain, Time,
+   Panel: osc 1-3 = X (left, red), osc 4-6 = Y (right, cyan). Two windows: Source & Display, Effects (with Master Gain, Time,
    Fast, Detune). The panel is 4:3 (L9 landscape, 1440 x 1080) or 3:4 (L9v portrait, 900 x 1200). */
 
 var REPORT = [];
 window.addEventListener('error', function (e) { REPORT.push('ERROR ' + e.message + ' @' + e.lineno); });
 
 // ---------------------------------------------------------------- palette and helpers
-var P = { ink: '#ebebeb', inkDim: '#a6a4a8', inkMute: '#8f8d92', line: '#515053', accent: '#cfabf6', accent3: '#af78ed', select: '#eded78',
-  rec: '#f0484a', off: '#3d3b40', byp: '#3568b8', tabSub: '#c4c2c7', X: '#e5484d', Y: '#3fbf6a', idle: '#77757b' };
+var P = { ink: '#ebebeb', inkDim: '#a6a4a8', inkMute: '#8f8d92', line: '#515053', accent: '#dce8ff', accentGlow: 'rgba(160,195,255,0.8)', accent3: '#af78ed', select: '#eded78',
+  rec: '#f0484a', off: '#3d3b40', byp: '#3568b8', tabSub: '#333236', X: '#e5484d', Y: '#29c9e0', idle: '#77757b' };
 var TAU = Math.PI * 2;
 function clamp(v, a, b) { a = a == null ? 0 : a; b = b == null ? 1 : b; return v < a ? a : v > b ? b : v; }
 var stage = document.getElementById('stage'), panel = document.getElementById('panel'), tip = document.getElementById('tip');
@@ -65,7 +67,6 @@ var PD = {
   div: { min: 1, max: 13, def: 1, step: 1, f: function (v) { return '÷' + v; } },
   hue: { min: 0, max: 360, def: 90, step: 1, f: deg },
   hueSpeed: { min: 0, max: 360, def: 0, step: 1, f: function (v) { return Math.round(v) + '°/s'; } },
-  rotation: { min: 0, max: 360, def: 0, step: 1, f: deg },
   persistence: { min: 0.01, max: 1, def: 0.24, step: 0, log: true, logMid: 0.7, f: function (v) { return v.toFixed(3); } },
   hold: { min: 0, max: 60, def: 0, step: 1, f: function (v) { return v + ' frames'; } },
   gain: { min: 0.1, max: 12.5, def: 0.69, step: 0.01, f: function (v) { return v.toFixed(2) + '×'; } },
@@ -100,7 +101,7 @@ var steps = function (d) { var n = d.step ? Math.round((d.max - d.min) / d.step)
 // ---------------------------------------------------------------- state
 var WAVES = ['Off', 'Sine', 'Triangle', 'Sawtooth', 'Square'];
 var WAVE_IDS = { sine: 1, triangle: 2, sawtooth: 3, square: 4 };
-var MASTER_KEYS = ['rotation', 'persistence', 'hold', 'gain', 'masterTime', 'masterTimeFast', 'masterDetune'];
+var MASTER_KEYS = ['persistence', 'hold', 'gain', 'masterTime', 'masterTimeFast', 'masterDetune'];
 function defaultOsc() {
   return [
     { wave: 1, gain: 1, freq: 220, phase: 0, speed: 0 }, { wave: 0, gain: 0.5, det: 0, mul: 1, div: 1, fm: false }, { wave: 0, gain: 0.5, det: 0, mul: 1, div: 1, fm: false },
@@ -397,7 +398,7 @@ function dragValue(target, ctl, range) {
 function sec(x, y, w, h, title, o) {
   o = o || {};
   var b = el('div', at(x, y, w, h) + ';box-sizing:border-box;border:1px solid ' + (o.line || P.inkMute) + ';border-radius:3px;pointer-events:none');
-  el('span', 'position:absolute;left:12px;top:-9px;padding:2px 8px;background:' + (o.tab || P.ink) + ';color:#19181a;font-size:10px;font-weight:800;letter-spacing:0.16em;text-transform:uppercase;line-height:14px;white-space:nowrap', b, title);
+  el('span', 'position:absolute;left:12px;top:-9px;padding:' + (o.tabLine ? '1px 7px;border:1px solid ' + o.tabLine : '2px 8px') + ';background:' + (o.tab || P.ink) + ';color:' + (o.tabInk || '#19181a') + ';font-size:10px;font-weight:800;letter-spacing:0.16em;text-transform:uppercase;line-height:14px;white-space:nowrap', b, title);
   return b;
 }
 var SCALE = 'position:absolute;inset:0;border-radius:50%;background:repeating-conic-gradient(from -136deg,' + P.inkDim + ' 0deg 2deg,transparent 2deg 27deg);' +
@@ -477,13 +478,13 @@ function curve(gl, fn, o) {
   o = o || {};
   var x = gl.x, w = gl.w, h = gl.h, i, v, yy;
   x.clearRect(0, 0, w, h);
-  x.strokeStyle = 'rgba(207,171,246,0.14)'; x.setLineDash([4, 8]); x.lineWidth = 1;
+  x.strokeStyle = o.mid || 'rgba(207,171,246,0.14)'; x.setLineDash([4, 8]); x.lineWidth = 1;
   x.beginPath(); x.moveTo(0, h / 2); x.lineTo(w, h / 2); x.stroke(); x.setLineDash([]);
   var path = function () { x.beginPath(); for (i = 0; i <= 240; i++) { v = clamp(fn(i / 240), -1, 1); yy = h / 2 - v * (h / 2 - 4); if (i) x.lineTo(i / 240 * w, yy); else x.moveTo(0, yy); } };
-  if (o.fill) { path(); x.lineTo(w, h); x.lineTo(0, h); x.closePath(); x.fillStyle = 'rgba(175,120,237,0.16)'; x.fill(); }
+  if (o.fill) { path(); x.lineTo(w, h); x.lineTo(0, h); x.closePath(); x.fillStyle = 'rgba(220,232,255,0.14)'; x.fill(); }
   path();
   x.strokeStyle = o.dim ? 'rgba(143,141,146,0.45)' : (o.col || P.accent); x.lineWidth = 2.4;
-  x.shadowColor = o.col || 'rgba(175,120,237,0.8)'; x.shadowBlur = o.dim ? 0 : 6;
+  x.shadowColor = o.col || P.accentGlow; x.shadowBlur = o.dim ? 0 : 6;
   x.stroke(); x.shadowBlur = 0;
 }
 function flash(k) { var s = k.state; k.set('rec'); setTimeout(function () { k.set(s); }, 300); }
@@ -578,7 +579,7 @@ function buildOscillators(G) {
   G.osc.forEach(function (p, i) {
     var x = p[0], y = p[1], w = p[2], main = i % 3 === 0, col = i < 3 ? P.X : P.Y;
     var O = function () { return state.osc[i]; };
-    sec(x, y, w, p[3], (main ? 'Osc ' + (i + 1) + ' · ' + (i < 3 ? 'X' : 'Y') + ' Main' : 'Osc ' + (i + 1)), { line: col, tab: main ? col : P.tabSub });
+    sec(x, y, w, p[3], (main ? 'Osc ' + (i + 1) + ' · ' + (i < 3 ? 'X' : 'Y') + ' Main' : 'Osc ' + (i + 1)), main ? { line: col, tab: col } : { line: col, tab: P.tabSub, tabInk: col, tabLine: col });
     var g = glass(x + 10, y + 14, w - 20, G.oscRow ? 32 : 24, 'Oscillator ' + (i + 1));
     g.g.style.cursor = 'pointer';
     g.g.title = 'Click: Off, Sine, Triangle, Sawtooth, Square';
@@ -603,9 +604,9 @@ function buildOscillators(G) {
     cl(cx, cy + 15, 30, 'FM', PRINT(8));
     var set = function () {
       var on = state.osc[oi].fm;
-      ring.style.borderColor = on ? P.accent : '#5a4a6c';
+      ring.style.borderColor = on ? P.accent : '#4c5566';
       ring.style.background = on ? 'radial-gradient(circle,' + P.accent + ' 0 3px,transparent 3.5px)' : 'none';
-      ring.style.boxShadow = on ? '0 0 7px rgba(175,120,237,0.8)' : 'none';
+      ring.style.boxShadow = on ? '0 0 7px ' + P.accentGlow : 'none';
       hit.setAttribute('aria-label', 'FM: oscillator ' + (oi + 1) + ' modulates oscillator ' + oi + (on ? ' (on)' : ' (off)'));
       hit.setAttribute('aria-pressed', on ? 'true' : 'false');
       ui.osc[oi].k[0].lab.textContent = on ? 'Depth' : 'Gain';
@@ -639,31 +640,33 @@ function buildSD(m) {
   ui.grid = key(p4(2)[0], r + 30, k4, 22, 'Grid', 'on', { fs: 9, onClick: function () { state.grid = !state.grid; ui.grid.set(state.grid ? 'on' : 'off'); } });
   ui.glow = key(p4(3)[0], r + 30, k4, 22, 'Glow', 'on', { fs: 9, onClick: function () { state.glow = !state.glow; ui.glow.set(state.glow ? 'on' : 'off'); } });
 
+  // Trace knobs: Hue and Hue Spd, then a red / white / cyan rule, then Persist and Hold.
   var Sg = function () { return state; }, ky = r + 96;
-  var DK = [['Hue', 'hue'], ['Hue Spd', 'hueSpeed'], ['Rotate', 'rotation'], ['Persist', 'persistence'], ['Hold', 'hold']];
-  DK.forEach(function (d, k) {
-    var p = wide ? [x + 16 + iw * (k + 0.5) / 5, ky] : k < 3 ? [x + 16 + iw * (k + 0.5) / 3, ky] : [x + 16 + iw * (k - 2) / 3, ky + 60];
-    knob(p[0], p[1], 22, d[0], Sg, d[1], PD[d[1]], { fs: 8 });
-  });
+  var DK = [['Hue', 'hue'], ['Hue Spd', 'hueSpeed'], ['Persist', 'persistence'], ['Hold', 'hold']];
+  DK.forEach(function (d, k) { knob(x + 16 + iw * (k + 0.5) / 4, ky, 22, d[0], Sg, d[1], PD[d[1]], { fs: 8 }); });
+  el('div', at(x + 16 + iw / 2 - 1.5, ky - 24, 3, 62) + ';background:linear-gradient(to right,' + P.X + ' 0 1px,#ffffff 1px 2px,' + P.Y + ' 2px 3px)');
 
-  var lx = x + 16, ly = (wide ? ky : ky + 60) + 54, lw = iw, lh = y + h - 44 - ly;
+  // Preset list: every preset is a line; tap or click one to select and load it, scroll with the wheel or a finger.
+  var lx = x + 16, ly = ky + 54, lw = iw, ny = y + h - 42, lh = ny - 10 - ly;
   presetLines = Math.max(1, Math.floor((lh - 10) / 20));
-  var band = 5 + Math.floor(presetLines / 2) * 20;
-  pdisp = el('div', at(lx, ly, lw, 10 + presetLines * 20) + ';box-sizing:border-box;padding:5px 10px 0;border-radius:4px;background:linear-gradient(to bottom,transparent ' + band + 'px,rgba(175,120,237,0.22) ' + band + 'px ' + (band + 20) + 'px,transparent ' + (band + 20) + 'px),#050406;' +
-    'box-shadow:inset 0 2px 5px rgba(0,0,0,0.9),0 1px 0 rgba(255,255,255,0.06);font-size:11px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;line-height:20px;color:' + P.accent + ';text-shadow:0 0 6px rgba(175,120,237,0.8);white-space:pre;overflow:hidden');
-  pdisp.setAttribute('aria-live', 'polite');
-  pdisp.addEventListener('wheel', function (e) { e.preventDefault(); presetSel = clamp(presetSel + (e.deltaY > 0 ? 1 : -1), 0, PRESETS.length - 1); drawPresets(); }, { passive: false });
-  pdisp.addEventListener('dblclick', loadSel);
-  var nw = Math.floor((lw - 24) / 5), ny = y + h - 34;
-  var nav = [['▲', 'Previous preset', function () { presetSel = Math.max(0, presetSel - 1); drawPresets(); }],
-             ['▼', 'Next preset', function () { presetSel = Math.min(PRESETS.length - 1, presetSel + 1); drawPresets(); }],
-             ['Load', 'Load preset', loadSel],
+  pdisp = el('div', at(lx, ly, lw, 10 + presetLines * 20) + ';box-sizing:border-box;padding:5px 0;border-radius:4px;background:#050406;' +
+    'box-shadow:inset 0 2px 5px rgba(0,0,0,0.9),0 1px 0 rgba(255,255,255,0.06);font-size:11px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;line-height:20px;color:' + P.accent + ';text-shadow:0 0 6px ' + P.accentGlow + ';' +
+    'white-space:pre;overflow-x:hidden;overflow-y:auto;scrollbar-width:none;touch-action:pan-y;overscroll-behavior:contain');
+  pdisp.className = 'plist';
+  pdisp.setAttribute('role', 'listbox'); pdisp.setAttribute('aria-label', 'Presets');
+  pdisp.addEventListener('click', function (e) {
+    var it = e.target.closest ? e.target.closest('[data-i]') : null;
+    if (!it) return;
+    presetSel = +it.getAttribute('data-i'); loadSel();
+  });
+  var nw = (lw - 12) / 3;
+  var nav = [['Load', 'Load preset', loadSel],
              ['Save', 'Save preset', function () {
                if (presetSel >= FACTORY) PRESETS[presetSel] = capturePreset(PRESETS[presetSel].name);
                else { PRESETS.push(capturePreset('User ' + (PRESETS.length - FACTORY + 1))); presetSel = PRESETS.length - 1; }
                savePresets(); drawPresets(); }],
              ['Rand', 'Randomize', function () { randomize(); syncUI(); }]];
-  nav.forEach(function (n, j) { key(lx + j * (nw + 6), ny, nw, 24, n[0].length === 1 ? '' : n[0], null, { glyph: n[0].length === 1 ? n[0] : null, fs: n[0].length === 1 ? 10 : 8.5, aria: n[1], onClick: n[2] }); });
+  nav.forEach(function (n, j) { key(lx + j * (nw + 6), ny, nw, 30, n[0], null, { fs: 10, aria: n[1], onClick: n[2] }); });
 }
 function loadSel() { applyPreset(PRESETS[presetSel]); syncUI(); }
 
@@ -688,9 +691,9 @@ function buildFX(m) {
   cl(mc, y + 18, mw, 'Master', PRINT(8));
   MASTERDEF.forEach(function (d, k) { knob(mc + (k % 2 ? dx : -dx), y + 64 + Math.floor(k / 2) * 64, 22, d[0], Sg, d[1], PD[d[1]], { fs: 8 }); });
 }
-// Bypass keys follow the original's colours: bright, glowing blue while the stage is bypassed, dull blue while it runs.
+// Bypass keys follow the original's colours: bright blue (no glow) while the stage is bypassed, dull blue while it runs.
 var BYPK = {
-  on: ['linear-gradient(to bottom,#5b8fe0,#3568b8)', '0 2px 0 #0f0e10,0 0 10px rgba(91,143,224,0.8),inset 0 1px 0 rgba(255,255,255,0.3)', '#ffffff'],
+  on: ['linear-gradient(to bottom,#5b8fe0,#3568b8)', '0 2px 0 #0f0e10,0 4px 7px rgba(0,0,0,0.5),inset 0 1px 0 rgba(255,255,255,0.3)', '#ffffff'],
   off: ['linear-gradient(to bottom,#2e3c55,#222d40)', '0 2px 0 #0f0e10,0 4px 7px rgba(0,0,0,0.5),inset 0 1px 0 rgba(255,255,255,0.06)', '#7d8cab']
 };
 function syncByp() {
@@ -714,26 +717,42 @@ function drawFx() {
     if (!f.byp.filter) m *= mag(fc, hz);
     if (!f.byp.bandpass) m *= mag(bc, hz);
     return clamp((20 * Math.log10(m + 1e-6) + 24) / 24) * 1.8 - 0.9;
-  }, { fill: true, dim: f.byp.filter && f.byp.bandpass });
+  }, { fill: true, mid: 'rgba(220,232,255,0.14)', dim: f.byp.filter && f.byp.bandpass });
 }
 
-// Signal paths: L red, R green. An oscillator frequency-modulated by its right-hand neighbour is drawn as sounding through
-// that neighbour: its own drop (and the lane up to the next live drop) goes grey and dotted, and the FM link takes the
-// channel colour. Chained FM (3 -> 2 -> 1) leaves the third module as the channel's only live path.
-function oscDead(i) { return i % 3 < 2 && state.osc[i + 1].fm; }
+// Signal paths: L red, R cyan. An oscillator frequency-modulated by its right-hand neighbour is drawn as sounding through
+// that neighbour: its own drop goes grey and dotted and the FM link takes the channel colour. Chained FM (3 -> 2 -> 1) leaves
+// the third module as the channel's only live path. An Off oscillator never lights, and an Off oscillator in FM mode
+// modulates nothing (as in the engine), so the one before it keeps its own live path. The lane is grey up to the first
+// live drop; a channel with no live drop is grey throughout.
+function fmOn(i) { var o = state.osc[i]; return i % 3 > 0 && o.fm && o.wave !== 0; }
+function routeLit() {
+  var lit = [];
+  for (var g = 0; g < 2; g++) {
+    var b = 3 * g, src = state.osc[b].wave !== 0, has = [src];
+    for (var k = 1; k < 3; k++) { src = fmOn(b + k) ? src : state.osc[b + k].wave !== 0; has.push(src); }
+    for (k = 0; k < 3; k++) lit[b + k] = has[k] && !(k < 2 && fmOn(b + k + 1));
+  }
+  return lit;
+}
 function drawRoutes() {
-  var G = GEO, s = '';
+  var G = GEO, s = '', lit = routeLit();
   var path = function (d, col, dotted, w) { return '<path d="' + d + '" style="fill:none;stroke:' + col + ';stroke-width:' + (w || 1.4) + ';stroke-linecap:round' + (dotted ? ';stroke-dasharray:1 4' : '') + '"></path>'; };
   [0, 1].forEach(function (c) {
     var col = c ? P.Y : P.X, i0 = c * 3, first = i0;
-    while (oscDead(first)) first++;
+    while (first < i0 + 3 && !lit[first]) first++;
+    if (first === i0 + 3) {
+      s += path('M' + G.dropX[i0] + ' ' + G.laneY[c] + G.busTail[c], P.idle, true, 1.6);
+      s += '<path d="' + G.heads[c] + '" style="fill:' + P.idle + '"></path>';
+      return;
+    }
     if (first > i0) s += path('M' + G.dropX[i0] + ' ' + G.laneY[c] + 'H' + G.dropX[first], P.idle, true, 1.6);
     s += path('M' + G.dropX[first] + ' ' + G.laneY[c] + G.busTail[c], col);
     s += '<path d="' + G.heads[c] + '" style="fill:' + col + '"></path>';
   });
-  G.drops.forEach(function (d, i) { var dead = oscDead(i); s += path(d, dead ? P.idle : (i < 3 ? P.X : P.Y), dead, dead ? 1.6 : 1.4); });
+  G.drops.forEach(function (d, i) { var dead = !lit[i]; s += path(d, dead ? P.idle : (i < 3 ? P.X : P.Y), dead, dead ? 1.6 : 1.4); });
   G.rings.forEach(function (r, li) {
-    var oi = RING_OSC[li], on = state.osc[oi].fm;
+    var oi = RING_OSC[li], on = fmOn(oi);
     s += path('M' + (r[0] - G.ringGap) + ' ' + r[1] + 'H' + (r[0] - 8) + 'M' + (r[0] + 8) + ' ' + r[1] + 'H' + (r[0] + G.ringGap), on ? (oi < 3 ? P.X : P.Y) : P.inkMute, false, on ? 1.6 : 1.2);
   });
   routeSvg.innerHTML = s;
@@ -741,9 +760,15 @@ function drawRoutes() {
 
 function pname(i) { return i < 0 || i >= PRESETS.length ? '' : (i < 9 ? '0' : '') + (i + 1) + '  ' + PRESETS[i].name + (i >= FACTORY ? '  ·' : ''); }
 function drawPresets() {
-  var mid = Math.floor(presetLines / 2), out = [];
-  for (var j = -mid; j < presetLines - mid; j++) out.push(pname(presetSel + j));
-  pdisp.textContent = out.join('\n');
+  pdisp.innerHTML = '';
+  PRESETS.forEach(function (p, i) {
+    var it = el('div', 'padding:0 10px;cursor:pointer;overflow:hidden;text-overflow:ellipsis' + (i === presetSel ? ';background:rgba(220,232,255,0.16)' : ''), pdisp, pname(i));
+    it.setAttribute('data-i', String(i)); it.setAttribute('role', 'option'); it.setAttribute('aria-selected', i === presetSel ? 'true' : 'false');
+  });
+  // Keep the selected line in view.
+  var top = 5 + presetSel * 20, vh = pdisp.clientHeight - 10;
+  if (top < pdisp.scrollTop) pdisp.scrollTop = top - 5;
+  else if (top + 20 > pdisp.scrollTop + vh) pdisp.scrollTop = top + 20 - vh + 5;
 }
 function drawWave(i) {
   var w = state.osc[i].wave, g = ui.osc[i].g;
@@ -765,46 +790,82 @@ function syncUI() {
 }
 
 // ---------------------------------------------------------------- displays
-var FN = 2048, fftRe = new Float32Array(FN), fftIm = new Float32Array(FN), hann = new Float32Array(FN), rev = new Uint16Array(FN), mags = [new Float32Array(FN / 2), new Float32Array(FN / 2)];
-(function () {
-  for (var i = 0; i < FN; i++) { hann[i] = 0.5 - 0.5 * Math.cos(TAU * i / (FN - 1)); var r = 0, x = i; for (var b = 1; b < FN; b <<= 1) { r = (r << 1) | (x & 1); x >>= 1; } rev[i] = r; }
-})();
-function fft() {
-  var n = FN, i, j, len, half, k;
-  for (i = 0; i < n; i++) { j = rev[i]; if (j > i) { var t = fftRe[i]; fftRe[i] = fftRe[j]; fftRe[j] = t; t = fftIm[i]; fftIm[i] = fftIm[j]; fftIm[j] = t; } }
+// Spectrum analyser: three FFT sizes, each used where it does best. 16384 points (Blackman-Harris, 2.9 Hz bins, 341 ms)
+// below 600 Hz so bass tones are two or three semitones wide; 8192 (Hann, 171 ms) to 2.5 kHz; 2048 (Hann, 43 ms) above, so the
+// highs stay quick.
+// Rows are log-spaced from 20 Hz to 10 kHz; a row narrower than its FFT bin interpolates between bins instead of repeating one.
+var SPEC_LO = 20, SPEC_HI = 10000, SPEC_DB = [-66, 60];   // display range: -66 dB (empty) to -6 dB (full), 60 dB
+var SPEC = [16384, 8192, 2048].map(function (n, j) {
+  var s = { n: n, re: new Float32Array(n), im: new Float32Array(n), win: new Float32Array(n), rev: new Uint32Array(n), m: [new Float32Array(n / 2), new Float32Array(n / 2)] }, ws = 0;
+  for (var i = 0; i < n; i++) {
+    var x = TAU * i / (n - 1);
+    s.win[i] = j === 0 ? 0.35875 - 0.48829 * Math.cos(x) + 0.14128 * Math.cos(2 * x) - 0.01168 * Math.cos(3 * x) : 0.5 - 0.5 * Math.cos(x);
+    ws += s.win[i];
+    var r = 0, y = i; for (var b = 1; b < n; b <<= 1) { r = (r << 1) | (y & 1); y >>= 1; } s.rev[i] = r;
+  }
+  s.norm = 2 / ws;   // a full-scale sine reads 1 whatever the window
+  return s;
+});
+function fft(s) {
+  var n = s.n, re = s.re, im = s.im, rev = s.rev, i, j, len, half, k;
+  for (i = 0; i < n; i++) { j = rev[i]; if (j > i) { var t = re[i]; re[i] = re[j]; re[j] = t; t = im[i]; im[i] = im[j]; im[j] = t; } }
   for (len = 2; len <= n; len <<= 1) {
     half = len >> 1; var ang = -TAU / len, wr = Math.cos(ang), wi = Math.sin(ang);
     for (i = 0; i < n; i += len) {
       var cr = 1, ci = 0;
       for (k = 0; k < half; k++) {
-        var a = i + k, b = a + half, xr = fftRe[b] * cr - fftIm[b] * ci, xi = fftRe[b] * ci + fftIm[b] * cr;
-        fftRe[b] = fftRe[a] - xr; fftIm[b] = fftIm[a] - xi; fftRe[a] += xr; fftIm[a] += xi;
+        var a = i + k, b = a + half, xr = re[b] * cr - im[b] * ci, xi = re[b] * ci + im[b] * cr;
+        re[b] = re[a] - xr; im[b] = im[a] - xi; re[a] += xr; im[a] += xi;
         var nr = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = nr;
       }
     }
   }
 }
-function spectrum(src, out) {
-  var base = (E.sw - FN) & (E.SN - 1), i;
-  for (i = 0; i < FN; i++) { fftRe[i] = src[(base + i) & (E.SN - 1)] * hann[i]; fftIm[i] = 0; }
-  fft();
-  for (i = 0; i < FN / 2; i++) out[i] = Math.sqrt(fftRe[i] * fftRe[i] + fftIm[i] * fftIm[i]) / (FN / 4);
+function spectrum(s, src, out) {
+  var n = s.n, base = (E.sw - n) & (E.SN - 1), i;
+  for (i = 0; i < n; i++) { s.re[i] = src[(base + i) & (E.SN - 1)] * s.win[i]; s.im[i] = 0; }
+  fft(s);
+  for (i = 0; i < n / 2; i++) out[i] = Math.sqrt(s.re[i] * s.re[i] + s.im[i] * s.im[i]) * s.norm;
 }
+// Row table for B rows at the current sample rate: which FFT, and either a bin range (max) or a fractional bin (interpolate).
+var specRows = null;
+function rowTable(B) {
+  if (specRows && specRows.B === B && specRows.sr === E.sr) return specRows;
+  var t = { B: B, sr: E.sr, rows: [] };
+  for (var b = 0; b < B; b++) {
+    var f0 = SPEC_LO * Math.pow(SPEC_HI / SPEC_LO, b / B), f1 = SPEC_LO * Math.pow(SPEC_HI / SPEC_LO, (b + 1) / B), fc = Math.sqrt(f0 * f1);
+    var j = fc < 600 ? 0 : fc < 2500 ? 1 : 2, bw = E.sr / SPEC[j].n;
+    t.rows.push(f1 - f0 < bw ? { j: j, x: fc / bw } : { j: j, i0: Math.floor(f0 / bw), i1: Math.max(Math.floor(f0 / bw) + 1, Math.ceil(f1 / bw)) });
+  }
+  specRows = t;
+  return t;
+}
+// Current level (0..1) of every row for channel ch, from the latest spectra.
+function rowLevels(ch, B, out) {
+  var T = rowTable(B).rows;
+  for (var b = 0; b < B; b++) {
+    var r = T[b], m = SPEC[r.j].m[ch], v = 0;
+    if (r.x != null) { var i = Math.floor(r.x), f = r.x - i; v = m[i] * (1 - f) + m[i + 1] * f; }
+    else for (var k = r.i0; k < r.i1; k++) if (m[k] > v) v = m[k];
+    out[b] = clamp((20 * Math.log10(v + 1e-9) - SPEC_DB[0]) / SPEC_DB[1]);
+  }
+  return out;
+}
+var specCur = new Float32Array(400);
 function drawAnalyzer(dt) {
-  spectrum(E.sL, mags[0]); spectrum(E.sR, mags[1]);
-  var c = ana.x, w = ana.w, h = ana.h, mid = w / 2, bh = 6, B = Math.floor(h / bh), nyq = E.sr / 2, half = FN / 2;
+  for (var j = 0; j < 3; j++) { spectrum(SPEC[j], E.sL, SPEC[j].m[0]); spectrum(SPEC[j], E.sR, SPEC[j].m[1]); }
+  var c = ana.x, w = ana.w, h = ana.h, mid = w / 2, bh = 6, B = Math.min(400, Math.floor(h / bh));
   c.fillStyle = '#050406'; c.fillRect(0, 0, w, h);
-  c.fillStyle = 'rgba(207,171,246,0.10)'; for (var gy = 1; gy < 10; gy++) c.fillRect(0, Math.round(h * gy / 10), w, 1);
+  // A faint line at every C (C1 32.7 Hz to C9 8.4 kHz), so octaves can be counted.
+  c.fillStyle = 'rgba(207,171,246,0.12)';
+  for (var fC = 32.7032; fC < SPEC_HI; fC *= 2) c.fillRect(0, Math.round(h - Math.log(fC / SPEC_LO) / Math.log(SPEC_HI / SPEC_LO) * B * bh), w, 1);
   var fall = Math.pow(0.02, dt), pfall = Math.pow(0.25, dt);
   for (var ch = 0; ch < 2; ch++) {
     var lv = ana.lv[ch], pk = ana.pk[ch], col = ch ? P.Y : P.X;
+    rowLevels(ch, B, specCur);
     c.fillStyle = col; c.shadowColor = col; c.shadowBlur = 6;
-    for (var b = 0; b < B && b < 400; b++) {
-      var f0 = 20 * Math.pow(nyq / 20, b / B), f1 = 20 * Math.pow(nyq / 20, (b + 1) / B);
-      var i0 = Math.floor(f0 / nyq * half), i1 = Math.max(i0 + 1, Math.ceil(f1 / nyq * half)), m = 0;
-      for (var i = i0; i < i1 && i < half; i++) if (mags[ch][i] > m) m = mags[ch][i];
-      var v = clamp((20 * Math.log10(m + 1e-9) + 84) / 78);
-      lv[b] = Math.max(v, lv[b] * fall); pk[b] = Math.max(lv[b], pk[b] * pfall);
+    for (var b = 0; b < B; b++) {
+      lv[b] = Math.max(specCur[b], lv[b] * fall); pk[b] = Math.max(lv[b], pk[b] * pfall);
       var y = h - (b + 1) * bh, len = lv[b] * (mid - 4), pl = pk[b] * (mid - 4);
       c.globalAlpha = 0.85;
       if (ch === 0) c.fillRect(mid - len, y + 1, len, bh - 2); else c.fillRect(mid, y + 1, len, bh - 2);
@@ -841,7 +902,6 @@ function drawScope() {
     c.stroke();
   } else {
     var mt = st.masterTime * st.masterTimeFast;
-    c.save(); c.translate(W / 2, H / 2); c.rotate(st.rotation * Math.PI / 180); c.translate(-W / 2, -H / 2);
     [[E.sL, st.osc[0].freq * mt, H / 4], [E.sR, st.osc[3].freq * mt, 3 * H / 4]].forEach(function (chn) {
       var period = E.sr / Math.max(1, chn[1]), win = Math.max(2, Math.min(12000, Math.round(7 * period))), margin = Math.min(4000, Math.ceil(period) + 1);
       var start = (E.sw - win - margin) & SN1, trig = 0;
@@ -850,7 +910,6 @@ function drawScope() {
       for (var t = 0; t < win; t++) { var v = chn[0][(start + trig + t) & SN1], xx = t / (win - 1) * W, yy = chn[2] - v * st.gain * (H / 4) * 0.9; if (t) c.lineTo(xx, yy); else c.moveTo(xx, yy); }
       c.stroke();
     });
-    c.restore();
   }
   c.globalCompositeOperation = 'source-over'; c.shadowBlur = 0;
 }
@@ -915,10 +974,21 @@ if (location.hash === '#selftest') {
     applyPreset(anyFm[0]); syncUI(); out.fmPreset = anyFm[0].name;
     out.dottedDrops = routeSvg.innerHTML.split('stroke-dasharray:1 4').length - 1;
     var keepR = JSON.stringify(state.osc);
-    out.fmCases = [[false, false], [true, false], [true, true], [false, true]].map(function (c) {
-      state.osc.forEach(function (o, i) { if (i % 3) o.fm = false; }); state.osc[1].fm = c[0]; state.osc[2].fm = c[1]; drawRoutes();
-      return (c[0] ? 'ring1' : '-') + '/' + (c[1] ? 'ring2' : '-') + ' live:' + [0, 1, 2].filter(function (i) { return !oscDead(i); }).map(function (i) { return i + 1; }).join(',') + ' dotted:' + (routeSvg.innerHTML.split('stroke-dasharray:1 4').length - 1);
+    // Route cases for the X group: [ring 2->1, ring 3->2, waves of osc 1-3] -> live drops.
+    out.fmCases = [[0, 0, [1, 1, 1]], [1, 0, [1, 1, 1]], [1, 1, [1, 1, 1]], [0, 1, [1, 1, 1]], [0, 0, [1, 0, 1]], [1, 0, [1, 0, 1]],
+                   [1, 1, [1, 1, 0]], [0, 1, [1, 0, 1]], [1, 0, [0, 1, 1]]].map(function (c) {
+      state.osc.forEach(function (o, i) { if (i % 3) o.fm = false; });
+      state.osc[1].fm = !!c[0]; state.osc[2].fm = !!c[1]; c[2].forEach(function (w, i) { state.osc[i].wave = w; }); drawRoutes();
+      var lit = routeLit();
+      return (c[0] ? 'fm2' : '-') + '/' + (c[1] ? 'fm3' : '-') + ' waves ' + c[2].join('') + ' -> live:' + ([0, 1, 2].filter(function (i) { return lit[i]; }).map(function (i) { return i + 1; }).join(',') || 'none');
     });
+    // Analyser resolution: width (semitones) of rows lit above 20% for a steady 0.5 sine, and the dip between 220 and 247 Hz.
+    var B = 258, semi = B / (12 * Math.log2(SPEC_HI / SPEC_LO)), lvl = new Float32Array(400);
+    var fill = function (fs) { for (var i = 0; i < E.SN; i++) { var v = 0; fs.forEach(function (f) { v += 0.5 * Math.sin(TAU * f * i / E.sr); }); E.sL[i] = v; } E.sw = 0; for (var j = 0; j < 3; j++) spectrum(SPEC[j], E.sL, SPEC[j].m[0]); return rowLevels(0, B, lvl); };
+    var row = function (f) { return Math.floor(Math.log(f / SPEC_LO) / Math.log(SPEC_HI / SPEC_LO) * B); };
+    out.anaWidth = [55, 110, 220, 440, 1760, 5000].map(function (f) { var v = fill([f]), n = 0; for (var b = 0; b < B; b++) if (v[b] > 0.2) n++; return f + 'Hz:' + (n / semi).toFixed(1); });
+    var v2 = fill([220, 246.94]), a = row(220), z = row(246.94), lo = 1; for (var q = a + 1; q < z; q++) lo = Math.min(lo, v2[q]);
+    out.anaDip220_247dB = Math.round((Math.min(v2[a], v2[z]) - lo) * SPEC_DB[1]);
     state.osc = JSON.parse(keepR); drawRoutes();
     out.land = { knobs: document.querySelectorAll('[role="slider"]').length, buttons: document.querySelectorAll('button').length, W: GEO.W, H: GEO.H };
     ui.osc[1].g.g.click(); out.waveCycled = state.osc[1].wave;
