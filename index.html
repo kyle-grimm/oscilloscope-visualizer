@@ -112,8 +112,8 @@ function fromV(d, v) {
 var steps = function (d) { var n = d.step ? Math.round((d.max - d.min) / d.step) + 1 : 0; return n && n <= 61 ? n : 0; };
 
 // ---------------------------------------------------------------- state
-var WAVES = ['Off', 'Sine', 'Triangle', 'Sawtooth', 'Square'];
-var WAVE_IDS = { sine: 1, triangle: 2, sawtooth: 3, square: 4 };
+var WAVES = ['Off', 'Sine', 'Triangle', 'Sawtooth', 'Square', 'Noise'];
+var WAVE_IDS = { sine: 1, triangle: 2, sawtooth: 3, square: 4, noise: 5 };
 var MASTER_KEYS = ['persistence', 'hold', 'lineWidth', 'gain', 'masterTime', 'masterTimeFast', 'masterDetune'];
 function defaultOsc() {
   return [
@@ -195,6 +195,7 @@ function randomize() {
 function wave(w, t, dt) {
   var y, b;
   if (w === 1) return Math.sin(TAU * t);
+  if (w === 5) return Math.random() * 2 - 1;   // Noise: white, whatever the pitch
   if (w === 2) return t < 0.25 ? 4 * t : t < 0.75 ? 2 - 4 * t : 4 * t - 4;
   if (w === 3) { b = t + 0.5; b -= Math.floor(b); return 2 * b - 1 - blep(b, dt); }
   y = t < 0.5 ? 1 : -1;
@@ -699,8 +700,8 @@ function buildOscillators(G) {
     sec(x, y, w, p[3], (main ? 'Osc ' + (i + 1) + '   ' + (i < 3 ? 'X-L' : 'Y-R') : 'Osc ' + (i + 1)), main ? { line: col, tab: col, fam: i < 3 ? 'x' : 'y', plain: true } : { line: col, tab: P.tabSub, tabInk: col, tabLine: col, fam: i < 3 ? 'x' : 'y', plain: true });
     var g = glass(x + 10, y + 14, w - 20, G.oscRow ? G.oscGlass : 24, 'Oscillator ' + (i + 1));
     g.g.style.cursor = 'pointer';
-    g.g.title = 'Click: Off, Sine, Triangle, Sawtooth, Square';
-    g.g.addEventListener('click', function () { var o = state.osc[i]; o.wave = (o.wave + 1) % 5; drawWave(i); drawRoutes(); });
+    g.g.title = 'Click: Off, Sine, Triangle, Sawtooth, Square, Noise';
+    g.g.addEventListener('click', function () { var o = state.osc[i]; o.wave = (o.wave + 1) % WAVES.length; drawWave(i); drawRoutes(); });
     var pos = G.oscRow ? [0, 1, 2, 3].map(function (k) { return [x + 32 + k * (w - 64) / 3, y + p[3] - 44]; })
                        : [[x + Math.round(w * 0.3), y + 70], [x + Math.round(w * 0.7), y + 70], [x + Math.round(w * 0.3), y + 128], [x + Math.round(w * 0.7), y + 128]];
     var ksz = G.oscRow ? 22 : 20;
@@ -987,13 +988,14 @@ function syncUI() {
 // keys (Scheme window, or the View window on phones) switch them; the choice is kept in localStorage. (2026-10-17: four
 // 5★ favourites and the pre-scheme Original were tried and dropped; the pre-scheme file is in snapshots/.)
 // Each window is one of the Lab's five colour families, in the feedback app's order: Oscilloscope = Feedback, Spectrum =
-// Chromakey, Source & Display = Transform, Effects = Color, Scheme = Layers. The X and Y oscillator windows take the scheme's
+// Chromakey, Source & Display = Transform, Effects = Color, Scheme = Layers; in both schemes (2026-10-17) Oscilloscope green,
+// Spectrum blue, Source purple (violet + 8) and Effects yellow. The X and Y oscillator windows take the scheme's
 // window treatment in their own channel hues (their outlines and nameplates keep the channel colours).
 var SCH_KEYS = ['hue.feedback', 'hue.chroma', 'hue.transform', 'hue.color', 'hue.layers', 'panel.sat', 'panel.light', 'stage', 'accent', 'outline',
   'texture', 'texStrength', 'sheen', 'cap', 'skirt', 'pointer', 'pointerColor', 'scale', 'font', 'weight', 'case', 'tracking', 'labelColor', 'nameplate'];
 var SCHEMES = [
-  {"id":"night","name":"Night","f":["red","lime","violet","blue","neutral","rich","pale","slate","cyan","none","scanlines","subtle","soft","graphite","knurled","line","family","ticks","sairaC","700","upper","tight","familyDark","black"],"j":{"h":[10.917,-10.665,2.294,0.226,-2.808],"s":[0.004,0.043,-0.063,0.025,-0.062],"l":0.003,"p":0.005}},
-  {"id":"day","name":"Day","f":["red","lime","violet","amber","blue","rich","pale","light","cyan","family","hatch","subtle","soft","graphite","knurled","line","family","ticks","sairaC","700","upper","tight","familyDark","ink"],"j":{"h":[9.091,-8.965,-9.177,-3.191,-5.68],"s":[0.036,-0.034,-0.051,0.053,0.086],"l":-0.006,"p":-0.001}}
+  {"id":"night","name":"Night","f":["green","blue","violet","yellow","neutral","rich","pale","slate","cyan","none","scanlines","subtle","soft","graphite","knurled","line","family","ticks","sairaC","700","upper","tight","familyDark","black"],"j":{"h":[0,0,8,0,-2.808],"s":[0.004,0.043,-0.063,0.025,-0.062],"l":0.003,"p":0.005}},
+  {"id":"day","name":"Day","f":["green","blue","violet","yellow","blue","rich","pale","light","cyan","family","hatch","subtle","soft","graphite","knurled","line","family","ticks","sairaC","700","upper","tight","familyDark","ink"],"j":{"h":[0,0,8,0,-5.68],"s":[0.036,-0.034,-0.051,0.053,0.086],"l":-0.006,"p":-0.001}}
 ];
 var SCH_FAMS = ['scope', 'spec', 'sd', 'fx', 'scheme'], SCH_XY = { x: 358, y: 188 };   // X / Y: the channel hues of P.X, P.Y
 var HUES = { red: 0, orange: 24, amber: 40, yellow: 54, lime: 85, green: 125, mint: 150, teal: 168, cyan: 188, sky: 200, blue: 215, indigo: 245, violet: 272, magenta: 305, pink: 335, neutral: null };
@@ -1133,7 +1135,7 @@ function loadFont(k) {
   document.head.appendChild(l); fontLinks[k] = l;
 }
 var SCH_LIGHT = false;   // the scheme's background is light (Day)
-var SCH_STORE = 'l9loop.scheme.v1', schemeIdx = 0, schemeStyle = document.createElement('style');
+var SCH_STORE = 'l9loop.scheme.v2', schemeIdx = 0, schemeStyle = document.createElement('style');
 document.head.appendChild(schemeStyle);
 function applyScheme(i) {
   schemeIdx = clamp(i, 0, SCHEMES.length - 1);
@@ -1151,7 +1153,7 @@ function storedScheme() {
   var id = null;
   try { id = localStorage.getItem(SCH_STORE); } catch (e) { }
   for (var i = 0; i < SCHEMES.length; i++) if (SCHEMES[i].id === id) return i;
-  return 0;   // Night, the feedback app's standard look (also for looks stored before Night / Day only)
+  return 1;   // Day (2026-10-17; the key moved to v2 then, so earlier choices start on Day once)
 }
 // Switch scheme and rebuild in place (a phone layout keeps its scroll position).
 function setScheme(i) {
@@ -1182,7 +1184,7 @@ function buildScheme(m) {
 // Layout (Columns, 2026-10-17): a thin left column - Spectrum, then Source & Display down to the bottom of the screen
 // (the sources as a square of touching keys, Mute | Freeze, a two-tone Night | Day key, then Presets: Save and a
 // scrolling list) - and to its right the
-// Oscilloscope (screen with Output, Grid and Glow under it, and a narrow column of beam knobs), Effects, and the X oscillators (1-3) and Y oscillators
+// Oscilloscope (screen and a narrow column of beam controls), Effects, and the X oscillators (1-3) and Y oscillators
 // (4-6) as two columns on the Oscilloscope's left and right edges, with a corridor between them for the signal paths:
 // each oscillator drops into its channel's lane (L / X red, R / Y cyan), the lanes rise straight up the corridor's
 // centre into Effects and out of its top into the Oscilloscope, and the Oscilloscope feeds the Spectrum (cyan over
@@ -1324,19 +1326,23 @@ function phBeamKnobs(cols) {
     }];
   }), cols);
 }
-// Under the screen: the Output key (XY / Wave; its icon takes the beam's colour, see tintOut), Grid and Glow.
+// The Output key (XY / Wave; its icon takes the beam's colour, see tintOut), then small Grid and Glow keys, each the
+// column's width. The Output key is short (not square) so the column, which sets the window's height, stays short.
 function phBeamKeys() {
-  return PL.keys(['Glow', 'Grid', 'Glow'], 3, function (i, x, y, w, h, Z) {
-    if (i === 0) {
-      ui.out = key(x, y, w, h, '', null, { small: Z.small, onClick: function () { state.mode = state.mode === 'xy' ? 'waveform' : 'xy'; syncOut(); } });
-      ui.outSz = Math.min(30, Math.round(h * 0.8)); ui.out.txt.style.display = 'flex';
+  var gh = function (Z) { return Math.max(13, Math.round(Z.kh * 0.65)); }, side = function (w, Z) { return gh(Z) + 6; };
+  return {
+    m: function (w, Z) { return { h: side(w, Z) + 2 * (gh(Z) + 2), mw: Math.max(30, labW('Glow', Z.fs - 0.5) + 10), f: 0 }; },
+    d: function (x, y, w, h, Z) {
+      var a = side(w, Z), y0 = y + (h - (a + 2 * (gh(Z) + 2))) / 2;
+      ui.out = key(x, y0, w, a, '', null, { small: true, onClick: function () { state.mode = state.mode === 'xy' ? 'waveform' : 'xy'; syncOut(); } });
+      ui.outSz = Math.min(30, a - 4); ui.out.txt.style.display = 'flex';
+      ui.grid = key(x, y0 + a + 2, w, gh(Z), 'Grid', 'on', { fs: Z.fs - 0.5, small: true, onClick: function () { state.grid = !state.grid; ui.grid.set(state.grid ? 'on' : 'off'); } });
+      ui.glow = key(x, y0 + a + 2 + gh(Z) + 2, w, gh(Z), 'Glow', 'on', { fs: Z.fs - 0.5, small: true, onClick: function () { state.glow = !state.glow; ui.glow.set(state.glow ? 'on' : 'off'); } });
     }
-    if (i === 1) ui.grid = key(x, y, w, h, 'Grid', 'on', { fs: Z.fs, small: Z.small, onClick: function () { state.grid = !state.grid; ui.grid.set(state.grid ? 'on' : 'off'); } });
-    if (i === 2) ui.glow = key(x, y, w, h, 'Glow', 'on', { fs: Z.fs, small: Z.small, onClick: function () { state.glow = !state.glow; ui.glow.set(state.glow ? 'on' : 'off'); } });
-  });
+  };
 }
-function phScope() {   // the screen with Output, Grid and Glow under it, and a narrow column of the six beam knobs
-  return PL.win('Oscilloscope', 'scope', PL.row([PL.col([PL.scope(), phBeamKeys()], 'in'), phBeamKnobs(1)], [1, 0], 'pad'), { id: 'scope' });
+function phScope() {   // the screen, and a narrow column: Output, Grid and Glow, then the six beam knobs stacked
+  return PL.win('Oscilloscope', 'scope', PL.row([PL.scope(), PL.col([phBeamKeys(), phBeamKnobs(1)], 'in')], [1, 0], 'pad'), { id: 'scope' });
 }
 function phSpec() {
   return PL.win('Spectrum', 'spec', PL.fill(4, 1, function (x, y, w, h) {
@@ -1363,21 +1369,24 @@ function phMuteFreeze() {
     if (i === 1) ui.freeze = key(x, y, w, h, 'Freeze', 'off', { tint: 'blue', fs: Z.fs, small: Z.small, aria: 'Freeze display', onClick: function () { state.freeze = !state.freeze; ui.freeze.set(state.freeze ? 'on' : 'off'); } });
   });
 }
-// Night / Day as one two-tone key as wide as Mute + Freeze: a dark Night half and a light Day half, the scheme it
-// switches to at full contrast and the current one muted. Tapping switches the scheme.
+// Day / Night as one two-tone key as wide as Mute + Freeze: a light Day part and a dark Night part meeting on a slant
+// (/), the scheme it switches to at full contrast and the current one muted. Tapping switches the scheme.
 function phDayNight() {
   return {
-    m: function (w, Z) { return { h: Z.kh, mw: 2 * (labW('Night', Z.fs) + 8), f: 0 }; },
+    m: function (w, Z) { return { h: Z.kh, mw: 2 * (labW('Night', Z.fs) + 10), f: 0 }; },
     d: function (x, y, w, h, Z) {
-      var y0 = y + Math.max(0, (h - Z.kh) / 2), o = 1 - schemeIdx;
+      var y0 = y + Math.max(0, (h - Z.kh) / 2), o = 1 - schemeIdx, sl = Math.round(Z.kh * 0.35);   // sl: the slant's half-width
       var k = key(x, y0, w, Z.kh, '', null, { fs: Z.fs, small: Z.small, aria: 'Switch to the ' + SCHEMES[o].name + ' scheme', onClick: function () { setScheme(o); } });
       k.b.style.padding = '0'; k.b.style.overflow = 'hidden';
-      var half = function (name, bg, ink, on) {
-        return '<span style="flex:1;align-self:stretch;display:flex;align-items:center;justify-content:center;background:' + bg + ';color:' + ink +
-          ';opacity:' + (on ? 0.4 : 1) + (on ? ';font-weight:600' : '') + '">' + name + '</span>';
+      var part = function (i, left, bg, ink) {
+        var clip = left ? 'polygon(0 0,calc(50% + ' + sl + 'px) 0,calc(50% - ' + sl + 'px) 100%,0 100%)'
+                        : 'polygon(calc(50% + ' + sl + 'px) 0,100% 0,100% 100%,calc(50% - ' + sl + 'px) 100%)';
+        return '<span style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;box-sizing:border-box;' +
+          (left ? 'padding-right:50%' : 'padding-left:50%') + ';clip-path:' + clip + ';background:' + bg + ';color:' + ink +
+          ';opacity:' + (i === schemeIdx ? 0.4 : 1) + '">' + SCHEMES[i].name + '</span>';
       };
-      k.b.innerHTML = half(SCHEMES[0].name, 'linear-gradient(to bottom,#3a393e,#1e1d21)', '#ebebeb', schemeIdx === 0) +
-                      half(SCHEMES[1].name, 'linear-gradient(to bottom,#f4f3f6,#cfcdd3)', '#1e1d21', schemeIdx === 1);
+      k.b.innerHTML = part(1, true, 'linear-gradient(to bottom,#f4f3f6,#cfcdd3)', '#1e1d21') +
+                      part(0, false, 'linear-gradient(to bottom,#3a393e,#1e1d21)', '#ebebeb');
       ui.schemeK = k;
     }
   };
@@ -1395,10 +1404,10 @@ function phPresets() {
     PL.fill(6, 1, function (x, y, w, h, Z) { presetList(x, y, w, Math.max(1, Math.floor((h - 10) / Z.plh)), Z.plh, Z.fs); drawPresets(); })
   ], 'in');
 }
-// Source (Source & Display): the sources, a gap, Mute | Freeze, Night / Day, then Presets filling the bottom. Named just
-// "Source" here: the nameplate is what sets the column's minimum width, and the longer name would keep it wide.
-// There is no Play key on the phone: the first tap anywhere starts the audio (see armPhoneAutoStart).
-function phSD() { return PL.win('Source', 'sd', PL.col([phInput(), phMuteFreeze(), phDayNight(), phPresets()], ['win', 'in', 'win']), { id: 'sd' }); }
+// Source (Source & Display): the sources, Mute | Freeze, Day / Night, then Presets filling the bottom, a gap between
+// each group. Named just "Source" here: the nameplate is what sets the column's minimum width, and the longer name
+// would keep it wide. There is no Play key on the phone: the first tap anywhere starts the audio (see armPhoneAutoStart).
+function phSD() { return PL.win('Source', 'sd', PL.col([phInput(), phMuteFreeze(), phDayNight(), phPresets()], 'win'), { id: 'sd' }); }
 // Browsers only let audio start from a user gesture, so on the phone (no Play key) the first tap or key press starts it.
 // A loaded file plays at once (the file picker's own tap counts).
 var phoneAutoStart = false;
@@ -1411,37 +1420,36 @@ function armPhoneAutoStart() {
   };
   ['pointerup', 'touchend', 'click', 'keydown'].forEach(function (t) { document.addEventListener(t, go, true); });
 }
-// Effects: one row of knobs, equally spaced - Detune, Speed, then the four stages (a short B bypass key under each).
-// Speed is Time x Fast as one knob (0.0001x to 1000x, log); its value window sits above the knob and opens the Speed
-// pad. The row's centre line (where the signal lines enter at the bottom edge and leave at the top) falls between the
-// third and fourth knobs.
+// Effects: one row of knobs, equally spaced - Detune, Speed, then the four stages - with a band above them: the Speed
+// readout over Speed and a short B bypass key over each stage. Speed is Time x Fast as one knob (0.0001x to 1000x, log);
+// its readout opens the Speed pad. The row's centre line (where the signal lines enter at the bottom edge and leave at
+// the top) falls between the third and fourth knobs.
 var TIMEALL = { get t() { return state.masterTime * state.masterTimeFast; },
   set t(x) { if (x <= 1) { state.masterTime = x; state.masterTimeFast = 1; } else { state.masterTime = 1; state.masterTimeFast = x; } } };
 var PD_TIME = { min: 0.0001, max: 1000, def: 1, step: 0, log: true, f: function (v) { return (v < 0.01 ? v.toFixed(4) : v < 10 ? v.toFixed(3) : v < 100 ? v.toFixed(1) : Math.round(v)) + '×'; } };
 function phFX() {
   var read = null, showT = function () { if (read) read.textContent = PD_TIME.f(TIMEALL.t); };
-  var bh = function (Z) { return Math.max(11, Math.round(Z.bk * 0.6)); };
+  var bh = function (Z) { return Math.max(11, Math.round(Z.bk * 0.6)); }, band = function (Z) { return Math.max(Z.lh + 2, bh(Z)); };
   var Fx = function () { return state.fx; };
   var items = [['Detune', Sg, 'masterDetune', PD.masterDetune],
     ['Speed', function () { return TIMEALL; }, 't', PD_TIME, { after: showT }, function (n) { ui.timeK = n; }]]
     .concat(FXDEF.map(function (d) { return [d[0] === 'Band Pass' ? 'Bandpass' : d[0], Fx, d[1], PD[d[1]], { after: drawFx }]; }));   // one word: the widest label sets every cell
-  var over = function (i, cx, y, cw, Z) {   // Speed's value window, above its knob
-    if (i !== 1) return;
-    read = readout(cx, y, Math.min(cw - 2, labW('0.0001×', Z.fs) + 8), Z, 'Speed. Tap for the fine-tuning pad.', function () { openTimePad(); });
-    showT(); ui.syncers.push(showT); ui.showTime = showT;
-  };
-  var under = function (i, cx, y, cw, Z) {   // the stages' B keys
+  var over = function (i, cx, y, cw, Z) {
+    if (i === 1) {   // Speed's readout
+      read = readout(cx, y + (band(Z) - Z.lh - 2) / 2, Math.min(cw - 2, labW('0.0001×', Z.fs) + 8), Z, 'Speed. Tap for the fine-tuning pad.', function () { openTimePad(); });
+      showT(); ui.syncers.push(showT); ui.showTime = showT;
+    }
     if (i < 2) return;
-    var d = FXDEF[i - 2];
-    ui.byp.push(key(cx - Z.bk / 2, y, Z.bk, bh(Z), 'B', 'on', { tint: 'blue', fs: Z.fs - 0.5, small: true, aria: d[0] + ' bypass', onClick: function () { state.fx.byp[d[2]] = !state.fx.byp[d[2]]; syncByp(); drawFx(); } }));
+    var d = FXDEF[i - 2];   // the stages' B keys
+    ui.byp.push(key(cx - Z.bk / 2, y + (band(Z) - bh(Z)) / 2, Z.bk, bh(Z), 'B', 'on', { tint: 'blue', fs: Z.fs - 0.5, small: true, aria: d[0] + ' bypass', onClick: function () { state.fx.byp[d[2]] = !state.fx.byp[d[2]]; syncByp(); drawFx(); } }));
   };
-  return PL.win('Effects', 'fx', fxKnobs(items, function (Z) { return Z.lh + 2 + Z.rg; }, over, under, bh), { id: 'fx' });
+  return PL.win('Effects', 'fx', fxKnobs(items, function (Z) { return band(Z) + Z.rg; }, over), { id: 'fx' });
 }
-// A row of knobs in equal cells across the window; topH: a band above the knobs (for over), uh: the height under them.
+// A row of knobs in equal cells across the window, under a band topH(Z) tall where over(i, cx, y, cellW, Z) adds to knob i.
 var FX_CH = 2 * RB + 6;
-function fxKnobs(items, topH, over, under, uh) {
+function fxKnobs(items, topH, over) {
   var n = items.length;
-  var nat = function (Z) { return topH(Z) + Z.KC + Z.rg + uh(Z); };
+  var nat = function (Z) { return topH(Z) + Z.KC; };
   return {
     m: function (w, Z) {
       var lw = Math.max.apply(null, items.map(function (it) { return labW(it[0], Z.fs); }));
@@ -1455,7 +1463,6 @@ function fxKnobs(items, topH, over, under, uh) {
         var k = knob(cx, cy, Z.s, it[0], it[1], it[2], it[3], Object.assign({ fs: Z.fs, tm: Z.tm, lm: 1, lh: Z.lh }, it[4] || {}));
         if (it[5]) it[5](k, i, cx, cy, cw, Z);
         over(i, cx, y0, cw, Z);
-        under(i, cx, ky + Z.KC + Z.rg, cw, Z);
       });
     }
   };
@@ -1494,8 +1501,8 @@ function phOsc(i) {
   };
   var wave = function (x, y, w, h) {
     var g = glass(x, y, w, h, 'Oscillator ' + (i + 1));
-    g.g.style.cursor = 'pointer'; g.g.title = 'Tap: Off, Sine, Triangle, Sawtooth, Square';
-    g.g.addEventListener('click', function () { var o = state.osc[i]; o.wave = (o.wave + 1) % 5; drawWave(i); drawRoutes(); });
+    g.g.style.cursor = 'pointer'; g.g.title = 'Tap: Off, Sine, Triangle, Sawtooth, Square, Noise';
+    g.g.addEventListener('click', function () { var o = state.osc[i]; o.wave = (o.wave + 1) % WAVES.length; drawWave(i); drawRoutes(); });
     ui.osc[i] = ui.osc[i] || { k: [] }; ui.osc[i].g = g; ui.osc[i].gr = [x, y, w, h];
   };
   // A 3 x 2 grid of equal cells: [col, row, item, index in ui.osc[i].k]. X: the wave screen over the first two cells
@@ -1520,10 +1527,10 @@ function phOsc(i) {
   return PL.win(main ? 'Osc ' + (i + 1) + '  ' + (i < 3 ? 'X-L' : 'Y-R') : 'Osc ' + (i + 1), i < 3 ? 'x' : 'y', body, { osc: i });
 }
 var oscCol = function (a) { return PL.col(a.map(function (i) { return phOsc(i); }), 'fm'); };
-// Each node reports the widest minimum width among them, so nodes in separate rows make one straight column.
-function sameWidth(nodes) {
+// Each node reports the widest minimum width among them (times k), so nodes in separate rows make one straight column.
+function sameWidth(nodes, k) {
   return nodes.map(function (n) {
-    return { m: function (w, Z) { var r = n.m(w, Z); return { h: r.h, mw: Math.max.apply(null, nodes.map(function (k) { return k.m(w, Z).mw; })), f: r.f }; }, d: n.d };
+    return { m: function (w, Z) { var r = n.m(w, Z); return { h: r.h, mw: (k || 1) * Math.max.apply(null, nodes.map(function (o) { return o.m(w, Z).mw; })), f: r.f }; }, d: n.d };
   });
 }
 // Columns (chosen 2026-10-17 from six trial arrangements; left column added the same day). A thin left column - Spectrum
@@ -1540,7 +1547,7 @@ function fitPhone(root, sp, H) {
   var W = PHONE_W - 2 * PM, ok = function (s) { var Z = phoneSizes(s, sp), r = root.m(W, Z); return r.h <= H - 2 * PM - Z.th / 2 && r.mw <= W + 0.5; };
   var lo = 6, hi = 48;
   if (!ok(lo)) return phoneSizes(lo, sp);
-  while (hi - lo > 0.5) { var mid = (lo + hi) / 2; if (ok(mid)) lo = mid; else hi = mid; }
+  while (hi - lo > 0.05) { var mid = (lo + hi) / 2; if (ok(mid)) lo = mid; else hi = mid; }
   return phoneSizes(Math.floor(lo * 2) / 2, sp);
 }
 // Keypad: type an oscillator's frequency (20-500 Hz) on a 10-key pad. Enter sets it, Cancel / outside / Escape closes.
