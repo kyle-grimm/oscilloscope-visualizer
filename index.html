@@ -930,9 +930,13 @@ function drawPresets() {
   if (top < pdisp.scrollTop) pdisp.scrollTop = top - 5;
   else if (top + PLH > pdisp.scrollTop + vh) pdisp.scrollTop = top + PLH - vh + 5;
 }
+// The wave screen shows two cycles. On Osc 1 and 4 it follows Phase and rolls at Spin (degrees per second, with the
+// display clock), so the screen shows what those knobs do; animateWaves redraws it when either changes.
+function wavePhase(i) { var o = state.osc[i]; return i % 3 ? 0 : ((o.phase + o.speed * realT) % 360 + 360) % 360; }
 function drawWave(i) {
-  var w = state.osc[i].wave, g = ui.osc[i].g;
-  curve(g, function (t) { var p = (t * 2) % 1; return w === 0 || w === 1 ? Math.sin(TAU * p) * 0.8 : wave(w, p, 0) * 0.8; }, { dim: w === 0, col: i < 3 ? P.X : P.Y });
+  var w = state.osc[i].wave, g = ui.osc[i].g, ph = wavePhase(i) / 360;
+  ui.osc[i].drawn = w + '|' + ph.toFixed(4);
+  curve(g, function (t) { var p = (t * 2 + ph) % 1; return w === 0 || w === 1 ? Math.sin(TAU * p) * 0.8 : wave(w, p, 0) * 0.8; }, { dim: w === 0, col: i < 3 ? P.X : P.Y });
   g.g.setAttribute('aria-label', 'Oscillator ' + (i + 1) + ': ' + WAVES[w] + '. Click to change.');
 }
 function refreshTransport() {
@@ -1159,7 +1163,7 @@ function buildScheme(m) {
 // R / Y cyan), the lanes rise into Effects, Effects feeds the Oscilloscope, the Oscilloscope the Spectrum, and Source &
 // Display (Mic, Line, File) feeds Effects. The Y windows mirror the X ones; FM rings sit between stacked oscillators on
 // the corridor side, red when on. Keys show their state by their label (light grey, white when on), not a light.
-// The preset list opens over the Spectrum (Presets key); an oscillator's pitch readout opens a keypad, the Time readout a
+// The preset list opens over the Spectrum (Presets key); an oscillator's pitch readout opens a keypad, the Speed readout a
 // large drag pad.
 var PHONE_W = 390, PM = 4, RB = 6;   // panel width, outer margin, L / R line spacing
 function phoneSizes(s, sp) {
@@ -1240,7 +1244,8 @@ var PL = {
   // callback(knob, i, cx, cy, cellW, Z)]. o.under(i, cx, y, cellW, Z): a key under knob i (the Bypass keys), o.uh tall.
   knobs: function (items, cols, o) {
     o = o || {};
-    var nat = function (Z) { var rows = Math.ceil(items.length / cols); return rows * Z.KC + (rows - 1) * Z.rg + (o.under ? Z.rg + Z.bk : 0); };
+    var uh = function (Z) { return o.uh ? o.uh(Z) : Z.bk; };
+    var nat = function (Z) { var rows = Math.ceil(items.length / cols); return rows * Z.KC + (rows - 1) * Z.rg + (o.under ? Z.rg + uh(Z) : 0); };
     return {
       m: function (w, Z) {
         var lw = Math.max.apply(null, items.map(function (it) { return labW(it[0], Z.fs); }));
@@ -1292,20 +1297,20 @@ function phBeamKnobs(cols) {
     }];
   }), cols);
 }
-// The square Output key (XY / Wave) with small Grid and Glow keys stacked beside it.
+// The square Output key (XY / Wave) across the column, with small Grid and Glow keys under it.
 function phBeamKeys() {
-  var q = function (Z) { return Math.round(Z.kh * 1.7); };
+  var gh = function (Z) { return Math.max(13, Math.round(Z.kh * 0.75)); };
   return {
-    m: function (w, Z) { return { h: q(Z), mw: q(Z) + 4 + labW('Glow', Z.fs - 0.5) + 10, f: 0 }; },
+    m: function (w, Z) { return { h: w + 2 * (gh(Z) + 3), mw: Math.max(30, labW('Glow', Z.fs - 0.5) + 10), f: 0 }; },
     d: function (x, y, w, h, Z) {
-      var a = q(Z), y0 = y + (h - a) / 2, sw = w - a - 4, sh = (a - 3) / 2;
+      var a = w, y0 = y + (h - (a + 2 * (gh(Z) + 3))) / 2;
       ui.out = key(x, y0, a, a, '', null, { small: Z.small, onClick: function () { state.mode = state.mode === 'xy' ? 'waveform' : 'xy'; syncOut(); } });
-      ui.grid = key(x + a + 4, y0, sw, sh, 'Grid', 'on', { fs: Z.fs - 0.5, small: true, onClick: function () { state.grid = !state.grid; ui.grid.set(state.grid ? 'on' : 'off'); } });
-      ui.glow = key(x + a + 4, y0 + sh + 3, sw, sh, 'Glow', 'on', { fs: Z.fs - 0.5, small: true, onClick: function () { state.glow = !state.glow; ui.glow.set(state.glow ? 'on' : 'off'); } });
+      ui.grid = key(x, y0 + a + 3, w, gh(Z), 'Grid', 'on', { fs: Z.fs - 0.5, small: true, onClick: function () { state.grid = !state.grid; ui.grid.set(state.grid ? 'on' : 'off'); } });
+      ui.glow = key(x, y0 + a + 3 + gh(Z) + 3, w, gh(Z), 'Glow', 'on', { fs: Z.fs - 0.5, small: true, onClick: function () { state.glow = !state.glow; ui.glow.set(state.glow ? 'on' : 'off'); } });
     }
   };
 }
-function phScope() {   // the screen, and a narrow column: Output with Grid / Glow, then the six beam knobs stacked
+function phScope() {   // the screen, and a narrow column: Output, Grid and Glow under it, then the six beam knobs stacked
   return PL.win('Oscilloscope', 'scope', PL.row([PL.scope(), PL.col([phBeamKeys(), phBeamKnobs(1)], 'in')], [1, 0], 'pad'), { id: 'scope' });
 }
 function phSpec() {
@@ -1363,27 +1368,29 @@ function phPresetPanel() {
 }
 // Source & Display: Presets | Night / Day, Play / Stop, Mute | Freeze, Tone Mic / Line File.
 function phSD() { return PL.win('Source & Display', 'sd', PL.col([phTop(), phPlay(), phMuteFreeze(), phInput()], 'in'), { id: 'sd' }); }
-// Effects: one row of the four stages (a small B bypass key under each), Time and Detune. Time is Time x Fast as one knob
-// (0.0001x to 1000x, log); its label is a readout that opens the Time pad.
+// Effects: one row of the four stages (a short B bypass key under each), Speed and Detune. Speed is Time x Fast as one
+// knob (0.0001x to 1000x, log), labelled, with its value in a window under the label that opens the Speed pad.
 var TIMEALL = { get t() { return state.masterTime * state.masterTimeFast; },
   set t(x) { if (x <= 1) { state.masterTime = x; state.masterTimeFast = 1; } else { state.masterTime = 1; state.masterTimeFast = x; } } };
 var PD_TIME = { min: 0.0001, max: 1000, def: 1, step: 0, log: true, f: function (v) { return (v < 0.01 ? v.toFixed(4) : v < 10 ? v.toFixed(3) : v < 100 ? v.toFixed(1) : Math.round(v)) + '×'; } };
 function phFX() {
-  var Fx = function () { return state.fx; }, under = function (i, cx, y, cw, Z) {
+  var read = null, showT = function () { if (read) read.textContent = PD_TIME.f(TIMEALL.t); };
+  var bh = function (Z) { return Math.max(11, Math.round(Z.bk * 0.6)); };
+  var under = function (i, cx, y, cw, Z) {
+    if (i === 4) {   // Speed's value window
+      read = readout(cx, y, Math.min(cw - 2, labW('0.0001×', Z.fs) + 8), Z, 'Speed. Tap for the fine-tuning pad.', function () { openTimePad(); });
+      showT(); ui.syncers.push(showT); ui.showTime = showT;
+      return;
+    }
     if (i > 3) return;
     if (i === 0) ui.byp = [];
     var d = FXDEF[i];
-    ui.byp.push(key(cx - Z.bk / 2, y, Z.bk, Z.bk, 'B', 'on', { tint: 'blue', fs: Z.fs, small: true, aria: d[0] + ' bypass', onClick: function () { state.fx.byp[d[2]] = !state.fx.byp[d[2]]; syncByp(); drawFx(); } }));
+    ui.byp.push(key(cx - Z.bk / 2, y, Z.bk, bh(Z), 'B', 'on', { tint: 'blue', fs: Z.fs - 0.5, small: true, aria: d[0] + ' bypass', onClick: function () { state.fx.byp[d[2]] = !state.fx.byp[d[2]]; syncByp(); drawFx(); } }));
   };
-  var read = null, showT = function () { if (read) read.textContent = PD_TIME.f(TIMEALL.t); };
-  var items = FXDEF.map(function (d) { return [d[0], Fx, d[1], PD[d[1]], { after: drawFx }]; });
-  items.push(['Time', function () { return TIMEALL; }, 't', PD_TIME, { after: showT }, function (n, j, cx, cy, cw, Z) {
-    ui.timeK = n; n.lab.style.visibility = 'hidden';
-    read = readout(cx, cy + Z.S / 2 + 1, Math.min(cw - 2, labW('0.0001×', Z.fs) + 8), Z, 'Time. Tap for the fine-tuning pad.', function () { openTimePad(); });
-    showT(); ui.syncers.push(showT); ui.showTime = showT;
-  }]);
+  var Fx = function () { return state.fx; }, items = FXDEF.map(function (d) { return [d[0], Fx, d[1], PD[d[1]], { after: drawFx }]; });
+  items.push(['Speed', function () { return TIMEALL; }, 't', PD_TIME, { after: showT }, function (n) { ui.timeK = n; }]);
   items.push(['Detune', Sg, 'masterDetune', PD.masterDetune]);
-  return PL.win('Effects', 'fx', PL.knobs(items, 6, { under: under }), { id: 'fx' });
+  return PL.win('Effects', 'fx', PL.knobs(items, 6, { under: under, uh: function (Z) { return Math.max(bh(Z), Z.lh + 2); } }), { id: 'fx' });
 }
 // A small glass readout button (the Pitch and Time labels), centred on cx with its top at y.
 function readout(cx, y, rw, Z, aria, onTap) {
@@ -1398,33 +1405,35 @@ function phLabel(t) {
   return { m: function (w, Z) { return { h: Z.lh + 2, mw: labW(t, Z.fs), f: 0 }; },
     d: function (x, y, w, h, Z) { famLabel(cl(x + w / 2, y + (h - Z.lh) / 2, w, t, PRINT(Z.fs) + ';line-height:' + Z.lh + 'px')); } };
 }
-// Oscillator window i: a half-length wave screen (tap for the next wave) over Gain | Pitch (or Gain | Detune), with the
-// other two knobs (Phase / Spin or Mult / Div) stacked beside them on the corridor side. On Osc 1 and 4 the Pitch label is
-// a readout of the frequency; tapping it opens the keypad.
+// Oscillator window i, two columns. Outside: a short wave screen (tap for the next wave) with Phase | Spin (Mult | Div)
+// under it. Toward the corridor: Pitch (Detune) over Gain. Y windows mirror X. On Osc 1 and 4 the Pitch label is a
+// readout of the frequency; tapping it opens the keypad.
 function phOsc(i) {
   var O = function () { return state.osc[i]; }, main = i % 3 === 0, read = null;
   var showHz = function () { if (read) read.textContent = Math.round(state.osc[i].freq) + ' Hz'; };
-  var items = main ? [['Gain', O, 'gain', PD.mgain], ['Pitch', O, 'freq', PD.freq, { after: showHz }], ['Phase', O, 'phase', PD.phase], ['Spin', O, 'speed', PD.speed]]
-                   : [['Gain', O, 'gain', PD.cgain], ['Detune', O, 'det', PD.det], ['Mult', O, 'mul', PD.mul], ['Div', O, 'div', PD.div]];
-  var withCb = function (it, k) {
-    it = it.slice(); while (it.length < 5) it.push(null);
-    return it.concat([function (n, j, cx, cy, cw, Z) {
-      (ui.osc[i] = ui.osc[i] || { k: [] }).k[k] = n;   // Y windows draw the stacked knobs before the wave screen
+  var it = main ? { gain: ['Gain', O, 'gain', PD.mgain], top: ['Pitch', O, 'freq', PD.freq, { after: showHz }], a: ['Phase', O, 'phase', PD.phase], b: ['Spin', O, 'speed', PD.speed] }
+                : { gain: ['Gain', O, 'gain', PD.cgain], top: ['Detune', O, 'det', PD.det], a: ['Mult', O, 'mul', PD.mul], b: ['Div', O, 'div', PD.div] };
+  // ui.osc[i].k keeps the original order (Gain first: the FM ring relabels it Depth)
+  var withCb = function (item, k) {
+    item = item.slice(); while (item.length < 5) item.push(null);
+    return item.concat([function (n, j, cx, cy, cw, Z) {
+      (ui.osc[i] = ui.osc[i] || { k: [] }).k[k] = n;
       if (!(main && k === 1)) return;
       n.lab.style.visibility = 'hidden';
       read = readout(cx, cy + Z.S / 2 + 1, Math.min(cw - 2, labW('500 Hz', Z.fs) + 10), Z, 'Osc ' + (i + 1) + ' pitch. Tap to type a frequency.', function () { openKeypad(i); });
       showHz(); ui.syncers.push(showHz);
     }]);
   };
-  var wave = PL.fill(2.4, 0.001, function (x, y, w, h) {
-    var g = glass(x, y, w, h, 'Oscillator ' + (i + 1));
-    g.g.style.cursor = 'pointer'; g.g.title = 'Tap: Off, Sine, Triangle, Sawtooth, Square';
-    g.g.addEventListener('click', function () { var o = state.osc[i]; o.wave = (o.wave + 1) % 5; drawWave(i); drawRoutes(); });
-    ui.osc[i] = ui.osc[i] || { k: [] }; ui.osc[i].g = g; ui.osc[i].gr = [x, y, w, h];
-  });
-  var left = PL.col([wave, PL.knobs([withCb(items[0], 0), withCb(items[1], 1)], 2)], 'in');
-  var stack = PL.knobs([withCb(items[2], 2), withCb(items[3], 3)], 1);
-  var body = i < 3 ? PL.row([left, stack], [0.62, 0.38], 'pad') : PL.row([stack, left], [0.38, 0.62], 'pad');
+  var wave = { m: function (w, Z) { return { h: Math.round(Z.fs * 2.2), mw: 30, f: 0 }; },
+    d: function (x, y, w, h, Z) {
+      var g = glass(x, y, w, h, 'Oscillator ' + (i + 1));
+      g.g.style.cursor = 'pointer'; g.g.title = 'Tap: Off, Sine, Triangle, Sawtooth, Square';
+      g.g.addEventListener('click', function () { var o = state.osc[i]; o.wave = (o.wave + 1) % 5; drawWave(i); drawRoutes(); });
+      ui.osc[i] = ui.osc[i] || { k: [] }; ui.osc[i].g = g; ui.osc[i].gr = [x, y, w, h];
+    } };
+  var outer = PL.col([wave, PL.knobs([withCb(it.a, 2), withCb(it.b, 3)], 2)], 'in');
+  var inner = PL.knobs([withCb(it.top, 1), withCb(it.gain, 0)], 1);
+  var body = i < 3 ? PL.row([outer, inner], [1, 0], 'pad') : PL.row([inner, outer], [0, 1], 'pad');
   return PL.win(main ? 'Osc ' + (i + 1) + '  ' + (i < 3 ? 'X-L' : 'Y-R') : 'Osc ' + (i + 1), i < 3 ? 'x' : 'y', body, { osc: i });
 }
 var oscCol = function (a) { return PL.col(a.map(function (i) { return phOsc(i); }), 'fm'); };
@@ -1484,7 +1493,7 @@ function openKeypad(i) {
   show();
 }
 function closeKeypad() { if (keypad) { keypad.off(); keypad.el.remove(); keypad = null; } }
-// Time pad: a large area for fine-tuning Time (0.0001x to 1000x). Dragging sideways moves it finely (the pad's width is
+// Speed pad (Time x Fast): a large area for fine-tuning it (0.0001x to 1000x). Dragging sideways moves it finely (the pad's width is
 // one decade, x10); dragging up / down moves it coarsely (the pad's height is three and a half decades). A ruler under
 // the pad shows where it sits in the whole range. 1x resets; Done, outside or Escape closes. Arrow keys nudge it.
 var timePad = null;
@@ -1494,15 +1503,15 @@ function openTimePad() {
   var back = el('div', 'position:absolute;inset:0;background:rgba(0,0,0,0.55);z-index:5');
   var pw = W - 24, padH = Math.min(260, Math.round(H * 0.36)), ph = 12 + 20 + 8 + 44 + 10 + padH + 10 + 34 + 12 + 44 + 12;
   var box = el('div', at(12, Math.max(10, (H - ph) / 2), pw, ph) + ';box-sizing:border-box;border-radius:10px;background:#1c1b1e;box-shadow:0 10px 40px rgba(0,0,0,0.7),inset 0 1px 0 rgba(255,255,255,0.08)', back);
-  box.setAttribute('role', 'dialog'); box.setAttribute('aria-label', 'Time');
-  el('div', at(12, 12, pw - 24) + ';font-size:13px;font-weight:800;letter-spacing:0.12em;text-transform:uppercase;color:#ebebeb', box, 'Time');
+  box.setAttribute('role', 'dialog'); box.setAttribute('aria-label', 'Speed');
+  el('div', at(12, 12, pw - 24) + ';font-size:13px;font-weight:800;letter-spacing:0.12em;text-transform:uppercase;color:#ebebeb', box, 'Speed');
   el('div', at(12, 13, pw - 24) + ';text-align:right;font-size:11px;font-weight:700;letter-spacing:0.04em;color:#8f8d92', box, '← → fine · ↑ ↓ coarse');
   var disp = el('div', at(12, 40, pw - 24, 44) + ';box-sizing:border-box;padding:0 12px;border-radius:5px;background:#050406;box-shadow:inset 0 2px 5px rgba(0,0,0,0.9);' +
     'font-size:24px;font-weight:700;letter-spacing:0.03em;line-height:44px;text-align:right;color:' + P.accent + ';text-shadow:0 0 8px ' + P.accentGlow, box);
   var py = 40 + 44 + 10, pad = el('div', at(12, py, pw - 24, padH) + ';box-sizing:border-box;border-radius:6px;cursor:move;touch-action:none;' +
     'background:repeating-linear-gradient(90deg,rgba(255,255,255,0.05) 0 1px,transparent 1px 24px),repeating-linear-gradient(0deg,rgba(255,255,255,0.05) 0 1px,transparent 1px 24px),#0b0b0d;' +
     'box-shadow:inset 0 2px 6px rgba(0,0,0,0.9),inset 0 0 0 1px rgba(255,255,255,0.06)', box);
-  pad.setAttribute('role', 'slider'); pad.setAttribute('aria-label', 'Time'); pad.tabIndex = 0;
+  pad.setAttribute('role', 'slider'); pad.setAttribute('aria-label', 'Speed'); pad.tabIndex = 0;
   var dot = el('div', 'position:absolute;width:18px;height:18px;margin:-9px 0 0 -9px;border-radius:50%;background:' + P.accent + ';box-shadow:0 0 12px ' + P.accentGlow + ';pointer-events:none', pad);
   dot.style.left = '50%'; dot.style.top = '50%';
   // ruler: decades 0.0001 .. 1000 with the current value marked
@@ -1537,7 +1546,7 @@ function openTimePad() {
   });
   var by = ry + 34 + 12, bw = (pw - 24 - 8) / 2, keep = panel;
   panel = box;
-  key(12, by, bw, 44, '1×', null, { fs: 13, aria: 'Reset Time to 1x', onClick: function () { lv = 0; apply(); } });
+  key(12, by, bw, 44, '1×', null, { fs: 13, aria: 'Reset Speed to 1x', onClick: function () { lv = 0; apply(); } });
   key(12 + bw + 8, by, bw, 44, 'Done', null, { fs: 13, onClick: closeTimePad });
   panel = keep;
   back.addEventListener('click', function (e) { if (e.target === back) closeTimePad(); });
@@ -1829,12 +1838,19 @@ function beamLabels() {
     t.lab.style.color = 'rgb(' + ch(b0[0]) + ',' + ch(b0[1]) + ',' + ch(b0[2]) + ')';
   });
 }
+function animateWaves() {
+  [0, 3].forEach(function (i) {
+    var u = ui.osc && ui.osc[i];
+    if (u && u.g && u.drawn !== state.osc[i].wave + '|' + (wavePhase(i) / 360).toFixed(4)) drawWave(i);
+  });
+}
 var pL = new Float32Array(4096), pR = new Float32Array(4096), zero = new Float32Array(4096), lastT = 0;
 E.init(48000);
 function frame(t) {
   var dt = lastT ? Math.min(0.1, (t - lastT) / 1000) : 1 / 60; lastT = t;
   if (!A.running) E.process(zero, zero, pL, pR, Math.min(4096, Math.round(E.sr * dt)));   // silent preview until Play
   if (!state.freeze) { realT += dt; drawScope(dt); drawAnalyzer(dt); }
+  animateWaves();
   beamLabels();
   requestAnimationFrame(frame);
 }
