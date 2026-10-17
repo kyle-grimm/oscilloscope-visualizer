@@ -321,7 +321,19 @@ function ensureAudio() {
   A.fileOut = A.ctx.createGain();
   A.node.connect(A.sink); A.sink.connect(lpf); lpf.connect(shelf); shelf.connect(lim); lim.connect(A.ctx.destination);
   A.node.connect(A.fileOut); A.fileOut.connect(A.ctx.destination);
+  A.ctx.onstatechange = function () { if (A.running && A.ctx && A.ctx.state === 'interrupted') A.ctx.resume(); };
   setGain();
+}
+// A new context whenever capture (Mic, Line) starts or stops. Phones switch their audio session for recording, and the
+// old graph can stall there, looping its last buffer as a steady tone that no gain change (Mute) reaches.
+function freshAudio() {
+  if (A.ctx) {
+    A.node.onaudioprocess = null;
+    try { A.node.disconnect(); } catch (e) { }
+    A.ctx.close(); A.ctx = null;
+  }
+  ensureAudio();
+  if (A.running) A.ctx.resume();
 }
 function setGain() {
   if (!A.ctx) return;
@@ -337,7 +349,7 @@ function dropSource() {
   if (A.file) { try { A.file.stop(); } catch (e) { } A.file.disconnect(); A.file = null; }
 }
 function setSource(kind) {
-  if (kind === 'tone') { dropSource(); state.src = 'tone'; ui.src.select(0); setGain(); drawRoutes(); return; }
+  if (kind === 'tone') { var cap = !!A.live; dropSource(); if (cap) freshAudio(); state.src = 'tone'; ui.src.select(0); setGain(); drawRoutes(); return; }
   if (kind === 'file') { document.getElementById('fileIn').click(); return; }
   play();
   var get = kind === 'mic'
@@ -347,7 +359,7 @@ function setSource(kind) {
   if (!navigator.mediaDevices) { flash(ui.src.keys[idx]); return; }
   get().then(function (s) {
     if (!s.getAudioTracks().length) { s.getTracks().forEach(function (t) { t.stop(); }); flash(ui.src.keys[idx]); return; }
-    dropSource(); A.live = s; A.liveSrc = A.ctx.createMediaStreamSource(s); A.liveSrc.connect(A.node);
+    dropSource(); freshAudio(); A.live = s; A.liveSrc = A.ctx.createMediaStreamSource(s); A.liveSrc.connect(A.node);
     state.src = kind; ui.src.select(idx); setGain(); drawRoutes();
   }).catch(function () { flash(ui.src.keys[idx]); });
 }
@@ -356,7 +368,7 @@ document.getElementById('fileIn').addEventListener('change', function (e) {
   if (!f) return;
   play();
   f.arrayBuffer().then(function (buf) { return A.ctx.decodeAudioData(buf); }).then(function (b) {
-    dropSource();
+    var cap = !!A.live; dropSource(); if (cap) freshAudio();
     var s = A.ctx.createBufferSource(); s.buffer = b; s.loop = true;
     s.connect(A.node); s.start();
     A.file = s; state.src = 'file'; ui.src.select(3); setGain(); drawRoutes();
@@ -773,6 +785,8 @@ function tintOut() {
 function syncOut() {
   var xy = state.mode === 'xy';
   ui.out.txt.innerHTML = xy ? OUT_ICON.wave : OUT_ICON.xy;
+  var sv = ui.out.txt.querySelector('svg');   // ui.outSz: the icon's size in a small key (phone), glow included
+  if (sv && ui.outSz) { sv.setAttribute('width', ui.outSz); sv.setAttribute('height', ui.outSz); }
   tintOut();
   ui.out.b.setAttribute('aria-label', 'Output: ' + (xy ? 'XY' : 'Wave') + '. Click for ' + (xy ? 'Wave' : 'XY') + '.');
   ui.out.b.title = xy ? 'Switch to Wave' : 'Switch to XY';
@@ -1168,7 +1182,7 @@ function buildScheme(m) {
 // Layout (Columns, 2026-10-17): a thin left column - Spectrum, then Source & Display down to the bottom of the screen
 // (the sources as a square of touching keys, Mute | Freeze, a two-tone Night | Day key, then Presets: Save and a
 // scrolling list) - and to its right the
-// Oscilloscope (screen and a narrow column of beam controls), Effects, and the X oscillators (1-3) and Y oscillators
+// Oscilloscope (screen with Output, Grid and Glow under it, and a narrow column of beam knobs), Effects, and the X oscillators (1-3) and Y oscillators
 // (4-6) as two columns on the Oscilloscope's left and right edges, with a corridor between them for the signal paths:
 // each oscillator drops into its channel's lane (L / X red, R / Y cyan), the lanes rise straight up the corridor's
 // centre into Effects and out of its top into the Oscilloscope, and the Oscilloscope feeds the Spectrum (cyan over
@@ -1310,22 +1324,19 @@ function phBeamKnobs(cols) {
     }];
   }), cols);
 }
-// The Output key (XY / Wave; its icon takes the beam's colour, see tintOut) centred in the column at 70% of its width,
-// with small Grid and Glow keys under it.
+// Under the screen: the Output key (XY / Wave; its icon takes the beam's colour, see tintOut), Grid and Glow.
 function phBeamKeys() {
-  var gh = function (Z) { return Math.max(13, Math.round(Z.kh * 0.75)); }, side = function (w) { return Math.round(w * 0.7); };
-  return {
-    m: function (w, Z) { return { h: side(w) + 2 * (gh(Z) + 3), mw: Math.max(30, labW('Glow', Z.fs - 0.5) + 10), f: 0 }; },
-    d: function (x, y, w, h, Z) {
-      var a = side(w), y0 = y + (h - (a + 2 * (gh(Z) + 3))) / 2;
-      ui.out = key(x + (w - a) / 2, y0, a, a, '', null, { small: Z.small, onClick: function () { state.mode = state.mode === 'xy' ? 'waveform' : 'xy'; syncOut(); } });
-      ui.grid = key(x, y0 + a + 3, w, gh(Z), 'Grid', 'on', { fs: Z.fs - 0.5, small: true, onClick: function () { state.grid = !state.grid; ui.grid.set(state.grid ? 'on' : 'off'); } });
-      ui.glow = key(x, y0 + a + 3 + gh(Z) + 3, w, gh(Z), 'Glow', 'on', { fs: Z.fs - 0.5, small: true, onClick: function () { state.glow = !state.glow; ui.glow.set(state.glow ? 'on' : 'off'); } });
+  return PL.keys(['Glow', 'Grid', 'Glow'], 3, function (i, x, y, w, h, Z) {
+    if (i === 0) {
+      ui.out = key(x, y, w, h, '', null, { small: Z.small, onClick: function () { state.mode = state.mode === 'xy' ? 'waveform' : 'xy'; syncOut(); } });
+      ui.outSz = Math.min(30, Math.round(h * 0.8)); ui.out.txt.style.display = 'flex';
     }
-  };
+    if (i === 1) ui.grid = key(x, y, w, h, 'Grid', 'on', { fs: Z.fs, small: Z.small, onClick: function () { state.grid = !state.grid; ui.grid.set(state.grid ? 'on' : 'off'); } });
+    if (i === 2) ui.glow = key(x, y, w, h, 'Glow', 'on', { fs: Z.fs, small: Z.small, onClick: function () { state.glow = !state.glow; ui.glow.set(state.glow ? 'on' : 'off'); } });
+  });
 }
-function phScope() {   // the screen, and a narrow column: Output, Grid and Glow under it, then the six beam knobs stacked
-  return PL.win('Oscilloscope', 'scope', PL.row([PL.scope(), PL.col([phBeamKeys(), phBeamKnobs(1)], 'in')], [1, 0], 'pad'), { id: 'scope' });
+function phScope() {   // the screen with Output, Grid and Glow under it, and a narrow column of the six beam knobs
+  return PL.win('Oscilloscope', 'scope', PL.row([PL.col([PL.scope(), phBeamKeys()], 'in'), phBeamKnobs(1)], [1, 0], 'pad'), { id: 'scope' });
 }
 function phSpec() {
   return PL.win('Spectrum', 'spec', PL.fill(4, 1, function (x, y, w, h) {
@@ -1352,8 +1363,8 @@ function phMuteFreeze() {
     if (i === 1) ui.freeze = key(x, y, w, h, 'Freeze', 'off', { tint: 'blue', fs: Z.fs, small: Z.small, aria: 'Freeze display', onClick: function () { state.freeze = !state.freeze; ui.freeze.set(state.freeze ? 'on' : 'off'); } });
   });
 }
-// Night / Day as one two-tone key as wide as Mute + Freeze: a dark Night half and a light Day half, the current
-// scheme's half bright and the other dimmed. Tapping switches the scheme.
+// Night / Day as one two-tone key as wide as Mute + Freeze: a dark Night half and a light Day half, the scheme it
+// switches to at full contrast and the current one muted. Tapping switches the scheme.
 function phDayNight() {
   return {
     m: function (w, Z) { return { h: Z.kh, mw: 2 * (labW('Night', Z.fs) + 8), f: 0 }; },
@@ -1363,7 +1374,7 @@ function phDayNight() {
       k.b.style.padding = '0'; k.b.style.overflow = 'hidden';
       var half = function (name, bg, ink, on) {
         return '<span style="flex:1;align-self:stretch;display:flex;align-items:center;justify-content:center;background:' + bg + ';color:' + ink +
-          ';opacity:' + (on ? 1 : 0.4) + (on ? '' : ';font-weight:600') + '">' + name + '</span>';
+          ';opacity:' + (on ? 0.4 : 1) + (on ? ';font-weight:600' : '') + '">' + name + '</span>';
       };
       k.b.innerHTML = half(SCHEMES[0].name, 'linear-gradient(to bottom,#3a393e,#1e1d21)', '#ebebeb', schemeIdx === 0) +
                       half(SCHEMES[1].name, 'linear-gradient(to bottom,#f4f3f6,#cfcdd3)', '#1e1d21', schemeIdx === 1);
@@ -1413,7 +1424,7 @@ function phFX() {
   var Fx = function () { return state.fx; };
   var items = [['Detune', Sg, 'masterDetune', PD.masterDetune],
     ['Speed', function () { return TIMEALL; }, 't', PD_TIME, { after: showT }, function (n) { ui.timeK = n; }]]
-    .concat(FXDEF.map(function (d) { return [d[0], Fx, d[1], PD[d[1]], { after: drawFx }]; }));
+    .concat(FXDEF.map(function (d) { return [d[0] === 'Band Pass' ? 'Bandpass' : d[0], Fx, d[1], PD[d[1]], { after: drawFx }]; }));   // one word: the widest label sets every cell
   var over = function (i, cx, y, cw, Z) {   // Speed's value window, above its knob
     if (i !== 1) return;
     read = readout(cx, y, Math.min(cw - 2, labW('0.0001×', Z.fs) + 8), Z, 'Speed. Tap for the fine-tuning pad.', function () { openTimePad(); });
@@ -1462,7 +1473,7 @@ function phLabel(t) {
   return { m: function (w, Z) { return { h: Z.lh + 2, mw: labW(t, Z.fs), f: 0 }; },
     d: function (x, y, w, h, Z) { famLabel(cl(x + w / 2, y + (h - Z.lh) / 2, w, t, PRINT(Z.fs) + ';line-height:' + Z.lh + 'px')); } };
 }
-// Oscillator window i, two columns. Outside: a short wave screen (tap for the next wave) with Phase | Spin (Mult | Div)
+// Oscillator window i, a 3 x 2 grid. Outside: a short wave screen (tap for the next wave) with Phase | Spin (Mult | Div)
 // under it. Toward the corridor: Pitch (Detune) over Gain. Y windows mirror X. On Osc 1 and 4 the Pitch label is a
 // readout of the frequency; tapping it opens the keypad.
 function phOsc(i) {
@@ -1481,17 +1492,31 @@ function phOsc(i) {
       showHz(); ui.syncers.push(showHz);
     }]);
   };
-  // The wave screen is one knob cell tall, so the Phase | Spin (Mult | Div) row under it lines up with Gain.
-  var wave = { m: function (w, Z) { return { h: Z.KC, mw: 30, f: 0 }; },
+  var wave = function (x, y, w, h) {
+    var g = glass(x, y, w, h, 'Oscillator ' + (i + 1));
+    g.g.style.cursor = 'pointer'; g.g.title = 'Tap: Off, Sine, Triangle, Sawtooth, Square';
+    g.g.addEventListener('click', function () { var o = state.osc[i]; o.wave = (o.wave + 1) % 5; drawWave(i); drawRoutes(); });
+    ui.osc[i] = ui.osc[i] || { k: [] }; ui.osc[i].g = g; ui.osc[i].gr = [x, y, w, h];
+  };
+  // A 3 x 2 grid of equal cells: [col, row, item, index in ui.osc[i].k]. X: the wave screen over the first two cells
+  // (one knob cell tall, from the left edge of Phase to the right edge of Spin) | Pitch, then Phase | Spin | Gain.
+  var cells = i < 3 ? [[0, 0, 'wave'], [2, 0, it.top, 1], [0, 1, it.a, 2], [1, 1, it.b, 3], [2, 1, it.gain, 0]]
+                    : [[0, 0, it.top, 1], [1, 0, 'wave'], [0, 1, it.gain, 0], [1, 1, it.a, 2], [2, 1, it.b, 3]];
+  var body = {
+    m: function (w, Z) {
+      var lw = Math.max.apply(null, [it.top, it.gain, it.a, it.b].map(function (t) { return labW(t[0], Z.fs); }));
+      return { h: 2 * Z.KC + Z.rg, mw: 3 * (Math.max(Z.S, lw) + 4), f: 0 };
+    },
     d: function (x, y, w, h, Z) {
-      var g = glass(x, y, w, h, 'Oscillator ' + (i + 1));
-      g.g.style.cursor = 'pointer'; g.g.title = 'Tap: Off, Sine, Triangle, Sawtooth, Square';
-      g.g.addEventListener('click', function () { var o = state.osc[i]; o.wave = (o.wave + 1) % 5; drawWave(i); drawRoutes(); });
-      ui.osc[i] = ui.osc[i] || { k: [] }; ui.osc[i].g = g; ui.osc[i].gr = [x, y, w, h];
-    } };
-  var outer = PL.col([wave, PL.knobs([withCb(it.a, 2), withCb(it.b, 3)], 2)], 'in');
-  var inner = PL.knobs([withCb(it.top, 1), withCb(it.gain, 0)], 1);
-  var body = i < 3 ? PL.row([outer, inner], [1, 0], 'pad') : PL.row([inner, outer], [0, 1], 'pad');
+      var cw = w / 3, y0 = y + Math.max(0, (h - 2 * Z.KC - Z.rg) / 2);
+      cells.forEach(function (c) {
+        var cx = x + cw * (c[0] + 0.5), ry = y0 + c[1] * (Z.KC + Z.rg);
+        if (c[2] === 'wave') { wave(cx + cw / 2 - (cw + Z.S) / 2, ry, cw + Z.S, Z.KC); return; }
+        var t = withCb(c[2], c[3]), k = knob(cx, ry + Z.S / 2, Z.s, t[0], t[1], t[2], t[3], Object.assign({ fs: Z.fs, tm: Z.tm, lm: 1, lh: Z.lh }, t[4] || {}));
+        t[5](k, 0, cx, ry + Z.S / 2, cw, Z);
+      });
+    }
+  };
   return PL.win(main ? 'Osc ' + (i + 1) + '  ' + (i < 3 ? 'X-L' : 'Y-R') : 'Osc ' + (i + 1), i < 3 ? 'x' : 'y', body, { osc: i });
 }
 var oscCol = function (a) { return PL.col(a.map(function (i) { return phOsc(i); }), 'fm'); };
