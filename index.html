@@ -1160,7 +1160,7 @@ function buildScheme(m) {
 // Layout (Columns, 2026-10-17): on the left Spectrum over Source & Display, on the right the Oscilloscope (screen and
 // a narrow column of beam controls) over Effects; then the X oscillators (1-3) and the Y oscillators (4-6) as two
 // columns with a corridor between them for the signal paths: each oscillator drops into its channel's lane (L / X red,
-// R / Y cyan), the lanes rise straight up the centre through Effects into the Oscilloscope, the Oscilloscope feeds the Spectrum, and Source &
+// R / Y cyan), the lanes rise straight up the centre into Effects and out of its top into the Oscilloscope, the Oscilloscope feeds the Spectrum, and Source &
 // Display (Mic, Line, File) feeds Effects. The Y windows mirror the X ones; FM rings sit between stacked oscillators on
 // the corridor side, red when on. Keys show their state by their label (light grey, white when on), not a light.
 // The preset list opens over the Spectrum (Presets key); an oscillator's pitch readout opens a keypad, the Speed readout a
@@ -1392,8 +1392,8 @@ function phFX() {
   items.push(['Detune', Sg, 'masterDetune', PD.masterDetune]);
   return PL.win('Effects', 'fx', fxKnobs(items, under, function (Z) { return Math.max(bh(Z), Z.lh + 2); }), { id: 'fx' });
 }
-// Effects' knobs in one row, split around a channel on the panel's centre line, where the signal lines pass straight up
-// through the window. Each knob's cell is as wide as its label needs (the spare width shared in proportion), and the
+// Effects' knobs in one row, split around the panel's centre line, where the signal lines enter at the bottom edge and
+// leave at the top edge (they are not drawn across the window), so no knob or B key sits under the arrowheads. Each knob's cell is as wide as its label needs (the spare width shared in proportion), and the
 // knobs are divided between the two sides where that leaves the most room.
 var FX_CH = 2 * RB + 6;
 function fxKnobs(items, under, uh) {
@@ -1612,10 +1612,10 @@ function phoneRoutes(Z) {
   var fx = R.fx, sc = R.scope, sp = R.spec, sd = R.sd, fb = fx[1] + fx[3], sb = sc[1] + sc[3];
   var sy = Math.round(Math.min(sp[1] + sp[3] / 2, sc[1] + sc[3] / 2)), iy = Math.round(fx[1] + fx[3] / 2);
   [0, 1].forEach(function (c) {
-    // straight up the centre: into Effects, through its channel, and on into the Oscilloscope
+    // straight up the centre: into Effects' bottom edge, then out of its top edge into the Oscilloscope (not drawn across it)
     G.pr.lane[c] = 'V' + (fb + 6);
     G.pr.laneHead[c] = up(lx[c], fb + 1);
-    G.pr.after[c] = 'M' + lx[c] + ' ' + fb + 'V' + (sb + 6) + 'M' + sc[0] + ' ' + (sy + (c ? RB / 2 : -RB / 2)) + 'H' + (sp[0] + sp[2] + 6);
+    G.pr.after[c] = 'M' + lx[c] + ' ' + fx[1] + 'V' + (sb + 6) + 'M' + sc[0] + ' ' + (sy + (c ? RB / 2 : -RB / 2)) + 'H' + (sp[0] + sp[2] + 6);
     G.pr.afterHeads[c] = up(lx[c], sb + 1) + left(sp[0] + sp[2] + 1, sy + (c ? RB / 2 : -RB / 2));
     G.pr.inP[c] = 'M' + (sd[0] + sd[2]) + ' ' + (iy + (c ? RB / 2 : -RB / 2)) + 'H' + (fx[0] - 6);
     G.pr.inHeads[c] = right(fx[0] - 1, iy + (c ? RB / 2 : -RB / 2));
