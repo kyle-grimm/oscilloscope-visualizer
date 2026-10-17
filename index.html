@@ -126,7 +126,7 @@ var state = {
   src: 'tone', mode: 'xy', grid: true, glow: true,
   hue: 90, hueSpeed: 0,
   fx: { filterAmount: 0, bandpassFreq: 1000, saturation: 0, chorusVoices: 0, byp: { filter: true, bandpass: true, saturation: true, chorus: true } },
-  mute: false, freeze: false
+  mute: true, freeze: false   // muted until Mute is switched off
 };
 MASTER_KEYS.forEach(function (k) { state[k] = PD[k].def; });
 
@@ -763,9 +763,17 @@ function outIcon() {
   return { xy: svg(xy), wave: svg(sine + sq) };
 }
 var OUT_ICON = outIcon();
+// The Output key's icon takes the beam's current colour (Trace Hue advanced by Hue Speed; see beamLabels).
+var outIconCol = '';
+function tintOut() {
+  var p = ui.out && ui.out.txt.querySelector('path');
+  if (!p || !outIconCol) return;
+  p.style.stroke = outIconCol; p.style.filter = 'drop-shadow(0 0 2px ' + outIconCol + ')';
+}
 function syncOut() {
   var xy = state.mode === 'xy';
   ui.out.txt.innerHTML = xy ? OUT_ICON.wave : OUT_ICON.xy;
+  tintOut();
   ui.out.b.setAttribute('aria-label', 'Output: ' + (xy ? 'XY' : 'Wave') + '. Click for ' + (xy ? 'Wave' : 'XY') + '.');
   ui.out.b.title = xy ? 'Switch to Wave' : 'Switch to XY';
 }
@@ -1158,7 +1166,8 @@ function buildScheme(m) {
 // fits the panel's width and height, and every other size (labels, keys, nameplates, padding, gaps) follows from the
 // knob size (phoneSizes). Height left over is spread evenly between the windows.
 // Layout (Columns, 2026-10-17): a thin left column - Spectrum, then Source & Display down to the bottom of the screen
-// (the sources as a square, Mute / Freeze / Night-Day, then Presets: Save and a scrolling list) - and to its right the
+// (the sources as a square of touching keys, Mute | Freeze, a two-tone Night | Day key, then Presets: Save and a
+// scrolling list) - and to its right the
 // Oscilloscope (screen and a narrow column of beam controls), Effects, and the X oscillators (1-3) and Y oscillators
 // (4-6) as two columns on the Oscilloscope's left and right edges, with a corridor between them for the signal paths:
 // each oscillator drops into its channel's lane (L / X red, R / Y cyan), the lanes rise straight up the corridor's
@@ -1296,17 +1305,20 @@ function phBeamKnobs(cols) {
       if (k === 0) { ui.hueLabs = []; ui.trailLabs = []; beamLabCol = ''; trailLabKey = ''; }
       if (k === 1 || k === 2) ui.trailLabs.push({ lab: n.lab, key: d[1] }); else if (k > 3) ui.hueLabs.push(n.lab);
       if (k === 1 || k === 2 || k > 3) n.lab.classList.add('dyn');
+      // Hue and Hue Spd take the beam's colour: a thin black outline keeps them legible on any window fill.
+      if (k > 3) n.lab.style.textShadow = '-1px 0 0 #000,1px 0 0 #000,0 -1px 0 #000,0 1px 0 #000,0 0 2px #000';
     }];
   }), cols);
 }
-// The square Output key (XY / Wave) across the column, with small Grid and Glow keys under it.
+// The Output key (XY / Wave; its icon takes the beam's colour, see tintOut) centred in the column at 70% of its width,
+// with small Grid and Glow keys under it.
 function phBeamKeys() {
-  var gh = function (Z) { return Math.max(13, Math.round(Z.kh * 0.75)); };
+  var gh = function (Z) { return Math.max(13, Math.round(Z.kh * 0.75)); }, side = function (w) { return Math.round(w * 0.7); };
   return {
-    m: function (w, Z) { return { h: w + 2 * (gh(Z) + 3), mw: Math.max(30, labW('Glow', Z.fs - 0.5) + 10), f: 0 }; },
+    m: function (w, Z) { return { h: side(w) + 2 * (gh(Z) + 3), mw: Math.max(30, labW('Glow', Z.fs - 0.5) + 10), f: 0 }; },
     d: function (x, y, w, h, Z) {
-      var a = w, y0 = y + (h - (a + 2 * (gh(Z) + 3))) / 2;
-      ui.out = key(x, y0, a, a, '', null, { small: Z.small, onClick: function () { state.mode = state.mode === 'xy' ? 'waveform' : 'xy'; syncOut(); } });
+      var a = side(w), y0 = y + (h - (a + 2 * (gh(Z) + 3))) / 2;
+      ui.out = key(x + (w - a) / 2, y0, a, a, '', null, { small: Z.small, onClick: function () { state.mode = state.mode === 'xy' ? 'waveform' : 'xy'; syncOut(); } });
       ui.grid = key(x, y0 + a + 3, w, gh(Z), 'Grid', 'on', { fs: Z.fs - 0.5, small: true, onClick: function () { state.grid = !state.grid; ui.grid.set(state.grid ? 'on' : 'off'); } });
       ui.glow = key(x, y0 + a + 3 + gh(Z) + 3, w, gh(Z), 'Glow', 'on', { fs: Z.fs - 0.5, small: true, onClick: function () { state.glow = !state.glow; ui.glow.set(state.glow ? 'on' : 'off'); } });
     }
@@ -1322,23 +1334,45 @@ function phSpec() {
     GEO.specIn = [x, y, w, h];
   }), { id: 'spec' });
 }
-function phInput() {   // the four sources (setSource order) as a square: OSC Mic / Line File. OSC is the oscillators (Tone).
-  var pos = [];
-  return PL.keys(['OSC', 'Mic', 'Line', 'File'], 2, function (i, x, y, w, h, Z) {
-    pos.push([x, y]);
-    if (i === 3) { ui.src = radio(pos, w, h, ['OSC', 'Mic', 'Line', 'File'], function (j) { setSource(['tone', 'mic', 'line', 'file'][j]); }, Z.fs, Z.small); pos = []; }
-  });
+// The four sources (setSource order) as a square of touching keys: OSC Mic / Line File. OSC is the oscillators (Tone).
+function phInput() {
+  var cell = function (Z) { return Math.max(Z.kh * 1.1, labW('Line', Z.fs) + 8); };
+  return {
+    m: function (w, Z) { return { h: 2 * Z.kh, mw: 2 * cell(Z), f: 0 }; },
+    d: function (x, y, w, h, Z) {
+      var kw = w / 2, y0 = y + Math.max(0, (h - 2 * Z.kh) / 2);
+      ui.src = radio([[x, y0], [x + kw, y0], [x, y0 + Z.kh], [x + kw, y0 + Z.kh]], kw, Z.kh, ['OSC', 'Mic', 'Line', 'File'], function (j) { setSource(['tone', 'mic', 'line', 'file'][j]); }, Z.fs, Z.small);
+    }
+  };
 }
-// Mute, Freeze and the Night / Day key (named for the scheme it switches to), one under another.
-function phDisplayKeys() {
-  return PL.keys(['Mute', 'Freeze', 'Night'], 1, function (i, x, y, w, h, Z) {
+// Mute | Freeze side by side.
+function phMuteFreeze() {
+  return PL.keys(['Mute', 'Freeze'], 2, function (i, x, y, w, h, Z) {
     if (i === 0) ui.mute = key(x, y, w, h, 'Mute', 'off', { tint: 'blue', fs: Z.fs, small: Z.small, aria: 'Mute audio', onClick: function () { state.mute = !state.mute; ui.mute.set(state.mute ? 'rec' : 'off'); setGain(); } });
     if (i === 1) ui.freeze = key(x, y, w, h, 'Freeze', 'off', { tint: 'blue', fs: Z.fs, small: Z.small, aria: 'Freeze display', onClick: function () { state.freeze = !state.freeze; ui.freeze.set(state.freeze ? 'on' : 'off'); } });
-    if (i === 2) { var o = 1 - schemeIdx; ui.schemeK = key(x, y, w, h, SCHEMES[o].name, null, { fs: Z.fs, small: Z.small, aria: 'Switch to the ' + SCHEMES[o].name + ' scheme', onClick: function () { setScheme(o); } }); }
   });
 }
-// Presets, at the bottom of Source: the label, a Save key, and the list (scrolls; tap a preset to load it) taking the
-// rest of the window's height.
+// Night / Day as one two-tone key as wide as Mute + Freeze: a dark Night half and a light Day half, the current
+// scheme's half bright and the other dimmed. Tapping switches the scheme.
+function phDayNight() {
+  return {
+    m: function (w, Z) { return { h: Z.kh, mw: 2 * (labW('Night', Z.fs) + 8), f: 0 }; },
+    d: function (x, y, w, h, Z) {
+      var y0 = y + Math.max(0, (h - Z.kh) / 2), o = 1 - schemeIdx;
+      var k = key(x, y0, w, Z.kh, '', null, { fs: Z.fs, small: Z.small, aria: 'Switch to the ' + SCHEMES[o].name + ' scheme', onClick: function () { setScheme(o); } });
+      k.b.style.padding = '0'; k.b.style.overflow = 'hidden';
+      var half = function (name, bg, ink, on) {
+        return '<span style="flex:1;align-self:stretch;display:flex;align-items:center;justify-content:center;background:' + bg + ';color:' + ink +
+          ';opacity:' + (on ? 1 : 0.4) + (on ? '' : ';font-weight:600') + '">' + name + '</span>';
+      };
+      k.b.innerHTML = half(SCHEMES[0].name, 'linear-gradient(to bottom,#3a393e,#1e1d21)', '#ebebeb', schemeIdx === 0) +
+                      half(SCHEMES[1].name, 'linear-gradient(to bottom,#f4f3f6,#cfcdd3)', '#1e1d21', schemeIdx === 1);
+      ui.schemeK = k;
+    }
+  };
+}
+// Presets, at the bottom of Source: a Save key and the list (scrolls; tap a preset to load it) taking the rest of the
+// window's height.
 function savePreset() {
   if (presetSel >= FACTORY) PRESETS[presetSel] = capturePreset(PRESETS[presetSel].name);
   else { PRESETS.push(capturePreset('User ' + (PRESETS.length - FACTORY + 1))); presetSel = PRESETS.length - 1; }
@@ -1346,15 +1380,14 @@ function savePreset() {
 }
 function phPresets() {
   return PL.col([
-    phLabel('Presets'),
     PL.keys(['Save'], 1, function (i, x, y, w, h, Z) { key(x, y, w, h, 'Save', null, { fs: Z.fs, small: Z.small, aria: 'Save preset', onClick: savePreset }); }),
     PL.fill(6, 1, function (x, y, w, h, Z) { presetList(x, y, w, Math.max(1, Math.floor((h - 10) / Z.plh)), Z.plh, Z.fs); drawPresets(); })
   ], 'in');
 }
-// Source (Source & Display): the sources, then Mute / Freeze / Night-Day, then Presets filling the bottom. Named just
+// Source (Source & Display): the sources, a gap, Mute | Freeze, Night / Day, then Presets filling the bottom. Named just
 // "Source" here: the nameplate is what sets the column's minimum width, and the longer name would keep it wide.
 // There is no Play key on the phone: the first tap anywhere starts the audio (see armPhoneAutoStart).
-function phSD() { return PL.win('Source', 'sd', PL.col([phInput(), phDisplayKeys(), phPresets()], ['pad', 'win']), { id: 'sd' }); }
+function phSD() { return PL.win('Source', 'sd', PL.col([phInput(), phMuteFreeze(), phDayNight(), phPresets()], ['win', 'in', 'win']), { id: 'sd' }); }
 // Browsers only let audio start from a user gesture, so on the phone (no Play key) the first tap or key press starts it.
 // A loaded file plays at once (the file picker's own tap counts).
 var phoneAutoStart = false;
@@ -1367,62 +1400,51 @@ function armPhoneAutoStart() {
   };
   ['pointerup', 'touchend', 'click', 'keydown'].forEach(function (t) { document.addEventListener(t, go, true); });
 }
-// Effects: one row of the four stages (a short B bypass key under each), Speed and Detune. Speed is Time x Fast as one
-// knob (0.0001x to 1000x, log), labelled, with its value in a window under the label that opens the Speed pad.
+// Effects: one row of knobs, equally spaced - Detune, Speed, then the four stages (a short B bypass key under each).
+// Speed is Time x Fast as one knob (0.0001x to 1000x, log); its value window sits above the knob and opens the Speed
+// pad. The row's centre line (where the signal lines enter at the bottom edge and leave at the top) falls between the
+// third and fourth knobs.
 var TIMEALL = { get t() { return state.masterTime * state.masterTimeFast; },
   set t(x) { if (x <= 1) { state.masterTime = x; state.masterTimeFast = 1; } else { state.masterTime = 1; state.masterTimeFast = x; } } };
 var PD_TIME = { min: 0.0001, max: 1000, def: 1, step: 0, log: true, f: function (v) { return (v < 0.01 ? v.toFixed(4) : v < 10 ? v.toFixed(3) : v < 100 ? v.toFixed(1) : Math.round(v)) + '×'; } };
 function phFX() {
   var read = null, showT = function () { if (read) read.textContent = PD_TIME.f(TIMEALL.t); };
   var bh = function (Z) { return Math.max(11, Math.round(Z.bk * 0.6)); };
-  var under = function (i, cx, y, cw, Z) {
-    if (i === 4) {   // Speed's value window
-      read = readout(cx, y, Math.min(cw - 2, labW('0.0001×', Z.fs) + 8), Z, 'Speed. Tap for the fine-tuning pad.', function () { openTimePad(); });
-      showT(); ui.syncers.push(showT); ui.showTime = showT;
-      return;
-    }
-    if (i > 3) return;
-    if (i === 0) ui.byp = [];
-    var d = FXDEF[i];
+  var Fx = function () { return state.fx; };
+  var items = [['Detune', Sg, 'masterDetune', PD.masterDetune],
+    ['Speed', function () { return TIMEALL; }, 't', PD_TIME, { after: showT }, function (n) { ui.timeK = n; }]]
+    .concat(FXDEF.map(function (d) { return [d[0], Fx, d[1], PD[d[1]], { after: drawFx }]; }));
+  var over = function (i, cx, y, cw, Z) {   // Speed's value window, above its knob
+    if (i !== 1) return;
+    read = readout(cx, y, Math.min(cw - 2, labW('0.0001×', Z.fs) + 8), Z, 'Speed. Tap for the fine-tuning pad.', function () { openTimePad(); });
+    showT(); ui.syncers.push(showT); ui.showTime = showT;
+  };
+  var under = function (i, cx, y, cw, Z) {   // the stages' B keys
+    if (i < 2) return;
+    var d = FXDEF[i - 2];
     ui.byp.push(key(cx - Z.bk / 2, y, Z.bk, bh(Z), 'B', 'on', { tint: 'blue', fs: Z.fs - 0.5, small: true, aria: d[0] + ' bypass', onClick: function () { state.fx.byp[d[2]] = !state.fx.byp[d[2]]; syncByp(); drawFx(); } }));
   };
-  var Fx = function () { return state.fx; }, items = FXDEF.map(function (d) { return [d[0], Fx, d[1], PD[d[1]], { after: drawFx }]; });
-  items.push(['Speed', function () { return TIMEALL; }, 't', PD_TIME, { after: showT }, function (n) { ui.timeK = n; }]);
-  items.push(['Detune', Sg, 'masterDetune', PD.masterDetune]);
-  return PL.win('Effects', 'fx', fxKnobs(items, under, function (Z) { return Math.max(bh(Z), Z.lh + 2); }), { id: 'fx' });
+  return PL.win('Effects', 'fx', fxKnobs(items, function (Z) { return Z.lh + 2 + Z.rg; }, over, under, bh), { id: 'fx' });
 }
-// Effects' knobs in one row, split around the panel's centre line, where the signal lines enter at the bottom edge and
-// leave at the top edge (they are not drawn across the window), so no knob or B key sits under the arrowheads. Each knob's cell is as wide as its label needs (the spare width shared in proportion), and the
-// knobs are divided between the two sides where that leaves the most room.
+// A row of knobs in equal cells across the window; topH: a band above the knobs (for over), uh: the height under them.
 var FX_CH = 2 * RB + 6;
-function fxKnobs(items, under, uh) {
+function fxKnobs(items, topH, over, under, uh) {
   var n = items.length;
-  var req = function (Z) { return items.map(function (it) { return Math.max(Z.S, labW(it[0], Z.fs)) + 4; }); };
-  var split = function (x, w, Z) {   // x: the row's left edge on the panel; the corridor runs up its centre
-    var c = x + w / 2, L = c - FX_CH / 2 - x, R = x + w - (c + FX_CH / 2), q = req(Z), best = null;
-    for (var nl = 0; nl <= n; nl++) {
-      var sl = 0, sr = 0;
-      q.forEach(function (v, i) { if (i < nl) sl += v; else sr += v; });
-      if (nl && L <= 0) continue;
-      var score = Math.min(nl ? L / sl : Infinity, n - nl ? R / sr : Infinity);
-      if (!best || score > best.score) best = { nl: nl, score: score, L: Math.max(0, L), R: R, sl: sl, sr: sr, q: q };
-    }
-    return best;
-  };
-  var nat = function (Z) { return Z.KC + Z.rg + uh(Z); };
+  var nat = function (Z) { return topH(Z) + Z.KC + Z.rg + uh(Z); };
   return {
-    m: function (w, Z) {   // Effects is right-aligned, so its row starts at the panel's right inner edge minus w
-      return { h: nat(Z), mw: split(PHONE_W - PM - Z.pad - w, w, Z).score >= 1 ? w : w + 1, f: 0 };
+    m: function (w, Z) {
+      var lw = Math.max.apply(null, items.map(function (it) { return labW(it[0], Z.fs); }));
+      return { h: nat(Z), mw: n * Math.max(Z.S + 6, lw), f: 0 };
     },
     d: function (x, y, w, h, Z) {
-      var sp = split(x, w, Z), y0 = y + Math.max(0, (h - nat(Z)) / 2), xl = x, xr = x + sp.L + FX_CH;
+      ui.byp = [];
+      var cw = w / n, y0 = y + Math.max(0, (h - nat(Z)) / 2), ky = y0 + topH(Z);
       items.forEach(function (it, i) {
-        var left = i < sp.nl, cw = sp.q[i] * (left ? sp.L / sp.sl : sp.R / sp.sr), cx;
-        if (left) { cx = xl + cw / 2; xl += cw; } else { cx = xr + cw / 2; xr += cw; }
-        var cy = y0 + Z.S / 2;
+        var cx = x + cw * (i + 0.5), cy = ky + Z.S / 2;
         var k = knob(cx, cy, Z.s, it[0], it[1], it[2], it[3], Object.assign({ fs: Z.fs, tm: Z.tm, lm: 1, lh: Z.lh }, it[4] || {}));
         if (it[5]) it[5](k, i, cx, cy, cw, Z);
-        under(i, cx, y0 + Z.KC + Z.rg, cw, Z);
+        over(i, cx, y0, cw, Z);
+        under(i, cx, ky + Z.KC + Z.rg, cw, Z);
       });
     }
   };
@@ -1459,7 +1481,8 @@ function phOsc(i) {
       showHz(); ui.syncers.push(showHz);
     }]);
   };
-  var wave = { m: function (w, Z) { return { h: Math.round(Z.fs * 2.2), mw: 30, f: 0 }; },
+  // The wave screen is one knob cell tall, so the Phase | Spin (Mult | Div) row under it lines up with Gain.
+  var wave = { m: function (w, Z) { return { h: Z.KC, mw: 30, f: 0 }; },
     d: function (x, y, w, h, Z) {
       var g = glass(x, y, w, h, 'Oscillator ' + (i + 1));
       g.g.style.cursor = 'pointer'; g.g.title = 'Tap: Off, Sine, Triangle, Sawtooth, Square';
@@ -1633,10 +1656,14 @@ function phoneRoutes(Z) {
     G.pr.inP[c] = 'M' + (sd[0] + sd[2]) + ' ' + (iy + (c ? RB / 2 : -RB / 2)) + 'H' + (fx[0] - 6);
     G.pr.inHeads[c] = right(fx[0] - 1, iy + (c ? RB / 2 : -RB / 2));
   });
-  // Source -> Osc 1 (the OSC source): level with Osc 1's wave screen, into its left edge.
+  // Source -> Osc 1 (the OSC source): a cyan over red pair level with Osc 1's wave screen, into its left edge.
   var o1 = O[0];
-  G.pr.oscIn = 'M' + (sd[0] + sd[2]) + ' ' + G.pr.dropY[0] + 'H' + (o1[0] - 6);
-  G.pr.oscInHead = right(o1[0] - 1, G.pr.dropY[0]);
+  G.pr.oscIn = []; G.pr.oscInHead = [];
+  [0, 1].forEach(function (c) {
+    var y = G.pr.dropY[0] + (c ? -RB / 2 : RB / 2);
+    G.pr.oscIn[c] = 'M' + (sd[0] + sd[2]) + ' ' + y + 'H' + (o1[0] - 6);
+    G.pr.oscInHead[c] = right(o1[0] - 1, y);
+  });
 }
 function drawPhoneRoutes() {
   var G = GEO, R = G.pr, s = '', ext = state.src !== 'tone', lit = ext ? [false, false, false, false, false, false] : routeLit();
@@ -1655,7 +1682,10 @@ function drawPhoneRoutes() {
     s += path(R.inP[c], ext ? col : P.idle, !ext, ext ? 1.4 : 1.6) + fill(R.inHeads[c], ext ? col : P.idle);
   });
   R.drops.forEach(function (d, i) { var dead = !lit[i]; s += path(d, dead ? P.idle : (i < 3 ? P.X : P.Y), dead, dead ? 1.6 : 1.4); });
-  s += path(R.oscIn, ext ? P.idle : P.X, ext, ext ? 1.6 : 1.4) + fill(R.oscInHead, ext ? P.idle : P.X);   // lit while OSC is the source
+  [0, 1].forEach(function (c) {   // Source -> Osc 1, lit while OSC is the source
+    var col = ext ? P.idle : (c ? P.Y : P.X);
+    s += path(R.oscIn[c], col, ext, ext ? 1.6 : 1.4) + fill(R.oscInHead[c], col);
+  });
   G.ringSeg.forEach(function (d, li) { var oi = RING_OSC[li], on = fmOn(oi) && !ext; s += path(d, on ? (oi < 3 ? P.X : P.Y) : P.inkMute, false, on ? 2 : 1.4); });
   routeSvg.innerHTML = s;
 }
@@ -1873,8 +1903,10 @@ function drawScope(dt) {
 // go from the usual grey to bright white with their own knob position; nothing glows. Restyled only when something changes.
 var beamLabCol = '', trailLabKey = '';
 function beamLabels() {
-  if (!ui.hueLabs) return;
   var h = Math.round(((state.hue + state.hueSpeed * realT) % 360 + 360) % 360);
+  var oc = 'hsl(' + h + ',90%,60%)';   // the Output key's icon, on its dark key
+  if (oc !== outIconCol) { outIconCol = oc; tintOut(); }
+  if (!ui.hueLabs) return;
   // On a light window (a scheme's pale Oscilloscope fill) the beam colour is darkened and the trail labels go from the
   // scheme's label colour toward black instead of white.
   var lw = SCH_DYN.light, c = 'hsl(' + h + ',90%,' + (lw ? 32 : 60) + '%)';
