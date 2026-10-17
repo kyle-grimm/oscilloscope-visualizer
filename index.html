@@ -403,7 +403,7 @@ function sec(x, y, w, h, title, o) {
   if (o.fam) famFill(o.fam, x, y, w, h, o.shape || roundedPath([[0, 0], [w, 0], [w, h], [0, h]]));
   var b = el('div', at(x, y, w, h) + ';box-sizing:border-box;border:1px solid ' + (o.line || P.inkMute) + ';border-radius:3px;pointer-events:none');
   var tf = o.tfs || 10, tl = Math.round(tf * 1.4);   // nameplate text size and line height (10 / 14 outside the phone layouts)
-  var t = el('span', 'position:absolute;left:' + (o.tabX || 12) + 'px;top:' + (-(tl + 4) / 2) + 'px;padding:' + (o.tabLine ? (o.tfs ? '0 ' + Math.round(tf * 0.5) + 'px' : '1px 7px') + ';border:1px solid ' + o.tabLine : (o.tfs ? '1px ' + Math.round(tf * 0.6) + 'px' : '2px 8px')) + ';background:' + (o.tab || P.ink) + ';color:' + (o.tabInk || '#19181a') + ';font-size:' + tf + 'px;font-weight:800;letter-spacing:' + (tf > 10 ? 0.12 : 0.16) + 'em;text-transform:uppercase;line-height:' + tl + 'px;white-space:pre', b, title);
+  var t = el('span', 'position:absolute;' + (o.tabRight ? 'right:' : 'left:') + (o.tabX || 12) + 'px;top:' + (-(tl + 4) / 2) + 'px;padding:' + (o.tabLine ? (o.tfs ? '0 ' + Math.round(tf * 0.5) + 'px' : '1px 7px') + ';border:1px solid ' + o.tabLine : (o.tfs ? '1px ' + Math.round(tf * 0.6) + 'px' : '2px 8px')) + ';background:' + (o.tab || P.ink) + ';color:' + (o.tabInk || '#19181a') + ';font-size:' + tf + 'px;font-weight:800;letter-spacing:' + (tf > 10 ? 0.12 : 0.16) + 'em;text-transform:uppercase;line-height:' + tl + 'px;white-space:pre', b, title);
   if (o.fam && !o.plain) { b.className = 'frame'; b.dataset.fam = o.fam; t.className = 'tab'; t.dataset.fam = o.fam; }
   return b;
 }
@@ -846,6 +846,7 @@ function syncByp() {
 }
 // Magnitude response of the Filter and Band Pass stages (log frequency, 20 Hz to 20 kHz).
 function drawFx() {
+  if (!ui.fxScreen) return;   // the phone layout has no response screen
   var f = state.fx, sr = E.sr || 48000;
   var fs = filterSpec(f.filterAmount), fc = coef(fs[0], fs[1], 0.9, sr), bc = coef('bandpass', f.bandpassFreq, 5, sr);
   var mag = function (c, hz) {
@@ -881,11 +882,7 @@ function drawRoutes() {
   // pair into Effects lights instead. The paths after Effects light whenever something feeds them.
   var G = GEO, s = '', ext = state.src !== 'tone', lit = ext ? [false, false, false, false, false, false] : routeLit();
   var path = function (d, col, dotted, w) { return '<path d="' + d + '" style="fill:none;stroke:' + col + ';stroke-width:' + (w || 1.4) + ';stroke-linecap:round' + (dotted ? ';stroke-dasharray:1 4' : '') + '"></path>'; };
-  if (G.phone) {   // phone layouts draw only the FM links between stacked oscillator windows
-    G.ringSeg.forEach(function (d, li) { var oi = RING_OSC[li], on = fmOn(oi) && !ext; s += path(d, on ? (oi < 3 ? P.X : P.Y) : P.inkMute, false, on ? 2 : 1.4); });
-    routeSvg.innerHTML = s;
-    return;
-  }
+  if (G.phone) { drawPhoneRoutes(); return; }
   var fill = function (d, col) { return '<path d="' + d + '" style="fill:' + col + '"></path>'; };
   [0, 1].forEach(function (c) {
     var col = c ? P.Y : P.X, i0 = c * 3, first = i0;
@@ -911,6 +908,7 @@ function drawRoutes() {
 
 function pname(i) { return i < 0 || i >= PRESETS.length ? '' : (i < 9 ? '0' : '') + (i + 1) + '  ' + PRESETS[i].name + (i >= FACTORY ? '  ·' : ''); }
 function drawPresets() {
+  if (!pdisp) return;   // the phone's preset list is closed
   pdisp.innerHTML = '';
   PRESETS.forEach(function (p, i) {
     var it = el('div', 'padding:0 10px;cursor:pointer;overflow:hidden;text-overflow:ellipsis' + (i === presetSel ? ';background:rgba(220,232,255,0.16)' : ''), pdisp, pname(i));
@@ -1135,35 +1133,52 @@ function buildScheme(m) {
 // ---------------------------------------------------------------- phone layouts
 // Portrait windows up to 600 px wide (or #phone). The whole panel fits the screen at once, no scrolling: it is 390 wide
 // and as tall as the screen's shape (so sizes here are about CSS px on a 390 px phone). The layout is an arrangement of
-// the windows (rows and columns of windows holding blocks of controls). fitPhone finds the largest knob size at which
-// the arrangement fits the panel's width and height; every other size (labels, keys, nameplates, padding, gaps) follows
-// from the knob size (phoneSizes). Height left over is spread evenly between and inside the windows, or given to the
-// preset list and spectrum. Signal paths are not drawn (no room for corridors); the FM rings sit between neighbouring
-// oscillator windows, linked to both.
-var PHONE_W = 390, PM = 4;   // panel width, outer margin
+// the windows (rows and columns of windows holding blocks of controls); fitPhone finds the largest knob size at which it
+// fits the panel's width and height, and every other size (labels, keys, nameplates, padding, gaps) follows from the
+// knob size (phoneSizes). Height left over is spread evenly between the windows.
+// Layout (Columns, 2026-10-17): Spectrum | Oscilloscope; Source & Display | Effects; then the X oscillators (1-3) and
+// the Y oscillators (4-6) as two columns with a corridor between them for the signal paths: each oscillator drops into
+// its channel's lane (L / X red, R / Y cyan), the lanes rise into Effects, Effects feeds the Oscilloscope, the Oscilloscope
+// the Spectrum, and Source & Display (Mic, Line, File) feeds Effects. FM rings sit between stacked oscillators on the
+// corridor side; the Y windows mirror the X ones (nameplates on the outer side). The preset list opens over the Spectrum (Presets key); an oscillator's pitch readout opens a keypad.
+var PHONE_W = 390, PM = 4, RB = 6;   // panel width, outer margin, L / R line spacing
 function phoneSizes(s, sp) {
   var tm = Math.max(4, Math.round(s * 0.28)), S = s + 2 * tm, fs = clamp(Math.round(s * 0.9) / 2, 6.5, 13);
   var lh = Math.ceil(fs * 1.15), kh = Math.max(18, Math.round(fs * 2.5)), pad = Math.max(3, Math.round(fs * 0.5)), rg = Math.max(2, Math.round(fs * 0.35));
   var th = Math.round(fs * 1.3) + 3, fm = Math.max(14, Math.round(S * 0.5));
   return { s: s, sp: sp, tm: tm, S: S, fs: fs, lh: lh, KC: S + 1 + lh, kh: kh, pad: pad, rg: rg, th: th, ti: Math.ceil(th / 2) + pad,
-    vg: Math.round(th / 2 + 2 + sp * fs), hg: Math.round(3 + sp * fs), fm: fm, plh: Math.round(fs * 2), small: kh < 26 };
+    vg: Math.round(th / 2 + 2 + sp * fs), hg: Math.round(3 + sp * fs), fm: fm, plh: Math.round(fs * 2), small: kh < 26, bk: Math.max(16, Math.round(kh * 0.85)) };
 }
 var labW = function (t, fs) { return t.length * fs * 0.6; };   // label width estimate (condensed caps with tracking)
-function gapOf(g, Z, across) { return g === 'win' ? (across ? Z.hg : Z.vg) : g === 'fm' ? Z.fm + 4 : g === 'pad' ? Z.pad : Z.rg; }
+// Gaps: win (between windows), fm (room for an FM ring), rt (room for a signal arrow), corr (the lane corridor),
+// lanes (above the oscillators: the lanes turn into Effects there), pad, in (inside a window).
+function gapOf(g, Z, across) {
+  switch (g) {
+    case 'win': return across ? Z.hg : Z.vg;
+    case 'fm': return Z.fm + 4;
+    case 'rt': return across ? Math.max(14, Z.hg) : Math.max(14, Z.vg);
+    case 'corr': return 3 * RB + 16;
+    case 'lanes': return Math.ceil(Z.th / 2) + 3 * RB + 6;
+    case 'pad': return Z.pad;
+    default: return Z.rg;
+  }
+}
 // Layout nodes: m(w, Z) -> { h: natural height, mw: minimum width, f: share of extra height }, d(x, y, w, h, Z) draws.
 var PL = {
+  // g: one gap kind, or one per boundary.
   col: function (kids, g) {
+    var G = function (Z, i) { return gapOf(Array.isArray(g) ? g[i] : g, Z, false); };
     return {
       m: function (w, Z) {
-        var h = 0, mw = 0, f = 0, G = gapOf(g, Z, false);
-        kids.forEach(function (k, i) { var r = k.m(w, Z); h += r.h + (i ? G : 0); mw = Math.max(mw, r.mw); f += r.f; });
+        var h = 0, mw = 0, f = 0;
+        kids.forEach(function (k, i) { var r = k.m(w, Z); h += r.h + (i ? G(Z, i - 1) : 0); mw = Math.max(mw, r.mw); f += r.f; });
         return { h: h, mw: mw, f: f };
       },
       d: function (x, y, w, h, Z) {   // extra height goes to the fills, or evenly around the children
-        var G = gapOf(g, Z, false), ms = kids.map(function (k) { return k.m(w, Z); }), nat = (kids.length - 1) * G, F = 0;
-        ms.forEach(function (r) { nat += r.h; F += r.f; });
+        var ms = kids.map(function (k) { return k.m(w, Z); }), nat = 0, F = 0;
+        ms.forEach(function (r, i) { nat += r.h + (i ? G(Z, i - 1) : 0); F += r.f; });
         var ex = Math.max(0, h - nat), sp = F ? 0 : ex / (kids.length + 1), yy = y + sp;
-        kids.forEach(function (k, i) { var kh = ms[i].h + (F ? ex * ms[i].f / F : 0); k.d(x, yy, w, kh, Z); yy += kh + G + sp; });
+        kids.forEach(function (k, i) { var kh = ms[i].h + (F ? ex * ms[i].f / F : 0); k.d(x, yy, w, kh, Z); yy += kh + sp + (i < kids.length - 1 ? G(Z, i) : 0); });
       }
     };
   },
@@ -1181,28 +1196,30 @@ var PL = {
       d: function (x, y, w, h, Z) { var W = widths(w, Z), G = gapOf(g, Z, true), xx = x; kids.forEach(function (k, i) { k.d(xx, y, W[i], h, Z); xx += W[i] + G; }); }
     };
   },
-  // A window: nameplate on the top border, body inset by the padding. o.osc: the oscillator it holds (X / Y colours).
+  // A window: nameplate on the top border, body inset by the padding. o.osc: the oscillator it holds (X / Y colours);
+  // o.id: name under which its rectangle is kept (GEO.rect) for the signal paths.
   win: function (title, fam, body, o) {
     o = o || {};
     return {
-      m: function (w, Z) { var r = body.m(w - 2 * Z.pad, Z); return { h: Z.ti + r.h + Z.pad, mw: Math.max(r.mw + 2 * Z.pad, labW(title, Z.fs) * 1.35 + 2 * Math.round(Z.fs * 0.6) + Math.max(6, Z.pad + 2) + 4), f: r.f }; },   // nameplates: heavier, wider tracking
+      m: function (w, Z) { var r = body.m(w - 2 * Z.pad, Z); return { h: Z.ti + r.h + Z.pad, mw: Math.max(r.mw + 2 * Z.pad, labW(title, Z.fs) * 1.35 + 2 * Math.round(Z.fs * 0.6) + Math.max(6, Z.pad + 2) + 4), f: r.f }; },
       d: function (x, y, w, h, Z) {
         var so = { fam: fam, tfs: Z.fs, tabX: Math.max(6, Z.pad + 2) };
         if (o.osc != null) {
           var i = o.osc, c = i < 3 ? P.X : P.Y;
-          Object.assign(so, i % 3 === 0 ? { line: c, tab: c } : { line: c, tab: P.tabSub, tabInk: c, tabLine: c }, { plain: true });
+          Object.assign(so, i % 3 === 0 ? { line: c, tab: c } : { line: c, tab: P.tabSub, tabInk: c, tabLine: c }, { plain: true, tabRight: i > 2 });   // Y mirrors X
           GEO.osc[i] = [x, y, w, h];
         }
+        if (o.id) GEO.rect[o.id] = [x, y, w, h];
         sec(x, y, w, h, title, so);
         body.d(x + Z.pad, y + Z.ti, w - 2 * Z.pad, h - Z.ti - Z.pad, Z);
       }
     };
   },
   // Knobs on a grid of cols (a short last row spreads evenly), centred in the height given. it: [label, obj, key, pd, opts,
-  // callback(knob, i)]. o.under(i, cx, y, w, Z): a key under knob i (the Bypass keys).
+  // callback(knob, i, cx, cy, cellW, Z)]. o.under(i, cx, y, cellW, Z): a key under knob i (the Bypass keys), o.uh tall.
   knobs: function (items, cols, o) {
     o = o || {};
-    var nat = function (Z) { var rows = Math.ceil(items.length / cols); return rows * Z.KC + (rows - 1) * Z.rg + (o.under ? Z.rg + Z.kh : 0); };
+    var nat = function (Z) { var rows = Math.ceil(items.length / cols); return rows * Z.KC + (rows - 1) * Z.rg + (o.under ? Z.rg + Z.bk : 0); };
     return {
       m: function (w, Z) {
         var lw = Math.max.apply(null, items.map(function (it) { return labW(it[0], Z.fs); }));
@@ -1213,7 +1230,7 @@ var PL = {
         items.forEach(function (it, i) {
           var r = Math.floor(i / cols), n = Math.min(cols, items.length - r * cols), cx = x + w * (i - r * cols + 0.5) / n, cy = y0 + r * (Z.KC + Z.rg) + Z.S / 2;
           var k = knob(cx, cy, Z.s, it[0], it[1], it[2], it[3], Object.assign({ fs: Z.fs, tm: Z.tm, lm: 1, lh: Z.lh }, it[4] || {}));
-          if (it[5]) it[5](k, i);
+          if (it[5]) it[5](k, i, cx, cy, w / n, Z);
           if (o.under) o.under(i, cx, y0 + Z.KC + Z.rg, w / n, Z);
         });
       }
@@ -1232,11 +1249,6 @@ var PL = {
         labels.forEach(function (t, i) { var r = Math.floor(i / per), c = i - r * per; mk(i, x + c * (kw + 4), y0 + r * (Z.kh + Z.rg), kw, Z.kh, Z); });
       }
     };
-  },
-  // Fixed-height strip (hf x label size), drawn by mk(x, y, w, h, Z).
-  strip: function (hf, mk, minW) {
-    return { m: function (w, Z) { return { h: Math.round(Z.fs * hf), mw: minW || 30, f: 0 }; },
-      d: function (x, y, w, h, Z) { var sh = Math.round(Z.fs * hf); mk(x, y + (h - sh) / 2, w, sh, Z); } };
   },
   // A block that takes extra height (weight f): min height hf x label size.
   fill: function (hf, f, mk, minW) {
@@ -1259,27 +1271,28 @@ function phBeamKnobs(cols) {
     }];
   }), cols);
 }
-function phBeamKeys(per) {
-  return PL.keys(['Out', 'Grid', 'Glow'], per, function (i, x, y, w, h, Z) {
-    if (i === 0) ui.out = key(x, y, w, h, '', null, { small: Z.small, onClick: function () { state.mode = state.mode === 'xy' ? 'waveform' : 'xy'; syncOut(); } });
-    if (i === 1) ui.grid = key(x, y, w, h, 'Grid', 'on', { fs: Z.fs, small: Z.small, onClick: function () { state.grid = !state.grid; ui.grid.set(state.grid ? 'on' : 'off'); } });
-    if (i === 2) ui.glow = key(x, y, w, h, 'Glow', 'on', { fs: Z.fs, small: Z.small, onClick: function () { state.glow = !state.glow; ui.glow.set(state.glow ? 'on' : 'off'); } });
-  });
+// The square Output key (XY / Wave) with small Grid and Glow keys stacked beside it.
+function phBeamKeys() {
+  var q = function (Z) { return Math.round(Z.kh * 1.7); };
+  return {
+    m: function (w, Z) { return { h: q(Z), mw: q(Z) + 4 + labW('Glow', Z.fs - 0.5) + 10, f: 0 }; },
+    d: function (x, y, w, h, Z) {
+      var a = q(Z), y0 = y + (h - a) / 2, sw = w - a - 4, sh = (a - 3) / 2;
+      ui.out = key(x, y0, a, a, '', null, { small: Z.small, onClick: function () { state.mode = state.mode === 'xy' ? 'waveform' : 'xy'; syncOut(); } });
+      ui.grid = key(x + a + 4, y0, sw, sh, 'Grid', 'on', { fs: Z.fs - 0.5, small: true, onClick: function () { state.grid = !state.grid; ui.grid.set(state.grid ? 'on' : 'off'); } });
+      ui.glow = key(x + a + 4, y0 + sh + 3, sw, sh, 'Glow', 'on', { fs: Z.fs - 0.5, small: true, onClick: function () { state.glow = !state.glow; ui.glow.set(state.glow ? 'on' : 'off'); } });
+    }
+  };
 }
-// Oscilloscope window. o.beam: 'side' (keys and knobs in a column right of the screen, o.sw of the width to the screen),
-// 'under' (keys, then knobs in o.kc columns, under the screen) or 'none' (the screen only, keys under it).
-function phScope(o) {
-  var body = o.beam === 'side' ? PL.row([PL.scope(), PL.col([phBeamKeys(1), phBeamKnobs(2)], 'in')], [o.sw, 1 - o.sw], 'pad')
-    : o.beam === 'under' ? PL.col([PL.scope(), phBeamKeys(3), phBeamKnobs(o.kc || 6)], 'in')
-    : PL.col([PL.scope(), phBeamKeys(3)], 'in');
-  return PL.win('Oscilloscope', 'scope', body);
+function phScope(sw) {
+  return PL.win('Oscilloscope', 'scope', PL.row([PL.scope(), PL.col([phBeamKeys(), phBeamKnobs(2)], 'in')], [sw, 1 - sw], 'pad'), { id: 'scope' });
 }
-function phBeam(cols) { return PL.win('Beam', 'scope', phBeamKnobs(cols)); }
-function phSpec(minH) {
-  return PL.win('Spectrum', 'spec', PL.fill(minH || 4, 1, function (x, y, w, h) {
+function phSpec() {
+  return PL.win('Spectrum', 'spec', PL.fill(4, 0, function (x, y, w, h) {
     ana = glass(x, y, w, h, 'Stereo spectrum analyser'); ana.cssW = w; ana.cssH = h;
     ana.lv = [new Float32Array(400), new Float32Array(400)]; ana.pk = [new Float32Array(400), new Float32Array(400)];
-  }));
+    GEO.specIn = [x, y, w, h];
+  }), { id: 'spec' });
 }
 function phView() {   // Night | Day
   return { m: function (w, Z) { return { h: Z.kh, mw: 2 * (labW('Night', Z.fs) + 8) + 4, f: 0 }; },
@@ -1300,64 +1313,87 @@ function phInput() {   // Tone, Mic, Line, File (setSource order)
     if (i === 3) { ui.src = radio(pos, w, h, ['Tone', 'Mic', 'Line', 'File'], function (j) { setSource(['tone', 'mic', 'line', 'file'][j]); }, Z.fs, Z.small); pos = []; }
   });
 }
-function phNav() {
-  return { m: function (w, Z) { return { h: Z.kh, mw: 3 * (labW('Load', Z.fs) + 12), f: 0 }; },
-    d: function (x, y, w, h, Z) { presetNav(x, y + (h - Z.kh) / 2, w, Z.kh, Z.fs, Z.small); } };
+// Presets: one key that opens (and closes) the preset list over the Spectrum.
+var presetsOpen = false;
+function phPresetsKey() {
+  return PL.keys(['Presets'], 1, function (i, x, y, w, h, Z) {
+    ui.presetsK = key(x, y, w, h, 'Presets', presetsOpen ? 'on' : 'off', { fs: Z.fs, small: Z.small, aria: 'Presets', onClick: function () { presetsOpen = !presetsOpen; phPresetPanel(); } });
+  });
 }
-function phPresets(minRows, f) {
-  return { m: function (w, Z) { return { h: 10 + minRows * Z.plh, mw: 90, f: f == null ? 2 : f }; },
-    d: function (x, y, w, h, Z) { var n = Math.max(1, Math.floor((h - 10) / Z.plh)); presetList(x, y + (h - 10 - n * Z.plh) / 2, w, n, Z.plh, Z.fs + 0.5); drawPresets(); } };
+// The preset list over the Spectrum: Save and Rand keys on top, the list under them (tap a preset to load it).
+function phPresetPanel() {
+  if (ui.presetsBox) { ui.presetsBox.remove(); ui.presetsBox = null; pdisp = null; }
+  if (ui.presetsK) { ui.presetsK.set(presetsOpen ? 'on' : 'off'); ui.presetsK.b.setAttribute('aria-pressed', presetsOpen ? 'true' : 'false'); }
+  if (!presetsOpen || !GEO.specIn) return;
+  var Z = GEO.Z, r = GEO.specIn, box = el('div', at(r[0], r[1], r[2], r[3]) + ';border-radius:4px;background:#050406;box-shadow:inset 0 2px 5px rgba(0,0,0,0.9);z-index:3');
+  box.setAttribute('role', 'dialog'); box.setAttribute('aria-label', 'Presets');
+  ui.presetsBox = box;
+  var g = 3, kw = (r[2] - 2 * g - g) / 2, kh = Z.bk, keep = panel;
+  panel = box;
+  key(g, g, kw, kh, 'Save', null, { fs: Z.fs - 0.5, small: true, aria: 'Save preset', onClick: function () {
+    if (presetSel >= FACTORY) PRESETS[presetSel] = capturePreset(PRESETS[presetSel].name);
+    else { PRESETS.push(capturePreset('User ' + (PRESETS.length - FACTORY + 1))); presetSel = PRESETS.length - 1; }
+    savePresets(); drawPresets(); } });
+  key(g + kw + g, g, kw, kh, 'Rand', null, { fs: Z.fs - 0.5, small: true, aria: 'Randomize', onClick: function () { randomize(); syncUI(); } });
+  var lh = Z.plh, top = g + kh + g, n = Math.max(1, Math.floor((r[3] - top - 10) / lh));
+  presetList(0, top, r[2], n, lh, Z.fs);
+  pdisp.style.boxShadow = 'none'; pdisp.style.background = 'transparent';
+  panel = keep;
+  drawPresets();
 }
-// Source & Display. o.side: presets to the right of the keys instead of under them.
-function phSD(o) {
-  o = o || {};
-  var keysCol = [phView(), phTransport(), phInput()];
-  if (o.side) return PL.win('Source & Display', 'sd', PL.row([PL.col(keysCol.concat([phNav()]), 'in'), phPresets(o.rows || 3)], [0.6, 0.4], 'pad'));
-  return PL.win('Source & Display', 'sd', PL.col(keysCol.concat([phPresets(o.rows || 2), phNav()]), 'in'));
-}
-// Effects: response screen, the four stages (Bypass under each) and Master Time / Fast / Detune. o.one: all seven knobs
-// in one row (Master unlabelled); otherwise Master gets its own labelled row.
-function phFX(o) {
-  o = o || {};
+// Source & Display: Night | Day, transport, input, Presets.
+function phSD() { return PL.win('Source & Display', 'sd', PL.col([phView(), phTransport(), phInput(), phPresetsKey()], 'in'), { id: 'sd' }); }
+// Effects: the four stages with a small B (bypass) key under each, then Master Time / Fast / Detune.
+function phFX() {
   var Fx = function () { return state.fx; }, under = function (i, cx, y, cw, Z) {
-    if (i > 3) return;
     if (i === 0) ui.byp = [];
-    var bw = Math.min(cw - 4, labW('Bypass', Z.fs - 0.5) + 14), d = FXDEF[i];
-    ui.byp.push(key(cx - bw / 2, y, bw, Z.kh, 'Bypass', 'on', { tint: 'blue', fs: Z.fs - 0.5, small: Z.small, onClick: function () { state.fx.byp[d[2]] = !state.fx.byp[d[2]]; syncByp(); drawFx(); } }));
+    var d = FXDEF[i];
+    ui.byp.push(key(cx - Z.bk / 2, y, Z.bk, Z.bk, 'B', 'on', { tint: 'blue', fs: Z.fs, small: true, aria: d[0] + ' bypass', onClick: function () { state.fx.byp[d[2]] = !state.fx.byp[d[2]]; syncByp(); drawFx(); } }));
   };
   var fxItems = FXDEF.map(function (d) { return [d[0], Fx, d[1], PD[d[1]], { after: drawFx }]; });
   var mItems = MASTERDEF.map(function (d) { return [d[0], Sg, d[1], PD[d[1]]]; });
-  var screen = PL.strip(o.screen || 2.6, function (x, y, w, h) { ui.fxScreen = glass(x, y, w, h, 'Filter and band-pass response'); });
-  var body = o.one ? PL.col([screen, PL.knobs(fxItems.concat(mItems), 7, { under: under })], 'in')
-    : PL.col([screen, PL.knobs(fxItems, 4, { under: under }), phLabel('Master'), PL.knobs(mItems, 3)], 'in');
-  return PL.win('Effects', 'fx', body);
+  return PL.win('Effects', 'fx', PL.col([PL.knobs(fxItems, 4, { under: under }), phLabel('Master'), PL.knobs(mItems, 3)], 'in'), { id: 'fx' });
 }
 function phLabel(t) {
   return { m: function (w, Z) { return { h: Z.lh + 2, mw: labW(t, Z.fs), f: 0 }; },
     d: function (x, y, w, h, Z) { famLabel(cl(x + w / 2, y + (h - Z.lh) / 2, w, t, PRINT(Z.fs) + ';line-height:' + Z.lh + 'px')); } };
 }
-// Oscillator window i: its wave screen (tap for the next wave), then four knobs in cols columns.
+// Oscillator window i: its wave screen (tap for the next wave), then four knobs in cols columns. On Osc 1 and 4 the Pitch
+// knob's label is a readout of the frequency; tapping it opens the keypad.
 function phOsc(i, cols) {
-  var O = function () { return state.osc[i]; }, main = i % 3 === 0;
-  var items = main ? [['Gain', O, 'gain', PD.mgain], ['Pitch', O, 'freq', PD.freq], ['Phase', O, 'phase', PD.phase], ['Spin', O, 'speed', PD.speed]]
+  var O = function () { return state.osc[i]; }, main = i % 3 === 0, read = null;
+  var showHz = function () { if (read) read.textContent = Math.round(state.osc[i].freq) + ' Hz'; };
+  var items = main ? [['Gain', O, 'gain', PD.mgain], ['Pitch', O, 'freq', PD.freq, { after: showHz }], ['Phase', O, 'phase', PD.phase], ['Spin', O, 'speed', PD.speed]]
                    : [['Gain', O, 'gain', PD.cgain], ['Detune', O, 'det', PD.det], ['Mult', O, 'mul', PD.mul], ['Div', O, 'div', PD.div]];
-  var knobs = PL.knobs(items.map(function (it, k) { return it.concat([null, function (n) { if (k === 0) ui.osc[i] = { g: ui.osc[i] && ui.osc[i].g, k: [] }; ui.osc[i].k.push(n); }]); }), cols);
-  var wave = PL.strip(2.4, function (x, y, w, h) {
-    var g = glass(x, y, w, h, 'Oscillator ' + (i + 1));
-    g.g.style.cursor = 'pointer'; g.g.title = 'Tap: Off, Sine, Triangle, Sawtooth, Square';
-    g.g.addEventListener('click', function () { var o = state.osc[i]; o.wave = (o.wave + 1) % 5; drawWave(i); drawRoutes(); });
-    ui.osc[i] = { g: g, k: [] };
-  });
+  var knobs = PL.knobs(items.map(function (it, k) {
+    while (it.length < 5) it.push(null);
+    return it.concat([function (n, j, cx, cy, cw, Z) {
+      ui.osc[i].k.push(n);
+      if (!(main && k === 1)) return;
+      n.lab.style.visibility = 'hidden';
+      var rw = Math.min(cw - 2, labW('500 Hz', Z.fs) + 10);
+      read = el('button', at(cx - rw / 2, cy + Z.S / 2 + 1, rw, Z.lh + 2) + ';box-sizing:border-box;padding:0;border:none;border-radius:3px;background:#050406;' +
+        'box-shadow:inset 0 1px 3px rgba(0,0,0,0.9);font-family:inherit;font-size:' + Z.fs + 'px;font-weight:700;letter-spacing:0.04em;line-height:' + (Z.lh + 2) + 'px;' +
+        'color:' + P.accent + ';text-shadow:0 0 5px ' + P.accentGlow + ';white-space:nowrap;cursor:pointer');
+      read.type = 'button'; read.setAttribute('aria-label', 'Osc ' + (i + 1) + ' pitch. Tap to type a frequency.');
+      read.addEventListener('click', function () { openKeypad(i); });
+      showHz(); ui.syncers.push(showHz);
+    }]);
+  }), cols);
+  var wave = { m: function (w, Z) { return { h: Math.round(Z.fs * 2.4), mw: 30, f: 0 }; },
+    d: function (x, y, w, h, Z) {
+      var g = glass(x, y, w, h, 'Oscillator ' + (i + 1));
+      g.g.style.cursor = 'pointer'; g.g.title = 'Tap: Off, Sine, Triangle, Sawtooth, Square';
+      g.g.addEventListener('click', function () { var o = state.osc[i]; o.wave = (o.wave + 1) % 5; drawWave(i); drawRoutes(); });
+      ui.osc[i] = { g: g, k: [] };
+    } };
   return PL.win(main ? 'Osc ' + (i + 1) + '  ' + (i < 3 ? 'X-L' : 'Y-R') : 'Osc ' + (i + 1), i < 3 ? 'x' : 'y', PL.col([wave, knobs], 'in'), { osc: i });
 }
-var oscRow = function (a, cols) { return PL.row(a.map(function (i) { return phOsc(i, cols); }), a.map(function () { return 1; }), 'fm'); };
 var oscCol = function (a, cols) { return PL.col(a.map(function (i) { return phOsc(i, cols); }), 'fm'); };
-// ---- the six arrangements (sp: spacing between windows, in label heights)
-// Columns (chosen 2026-10-17 from six trial arrangements): screen and spectrum, Effects | Source & Display, then the X and Y
-// oscillators as two columns with four knobs across each.
+// Columns (chosen 2026-10-17 from six trial arrangements).
 var PHONE_LAYOUT = { id: 'columns', name: 'Columns', sp: 0.6, tree: function () {
-  return PL.col([PL.row([phScope({ beam: 'side', sw: 0.66 }), phSpec()], [0.76, 0.24], 'win'), PL.row([phFX(), phSD()], [0.5, 0.5], 'win'),
-    PL.row([oscCol([0, 1, 2], 4), oscCol([3, 4, 5], 4)], [1, 1], 'win')], 'win'); } };
+  return PL.col([PL.row([phSpec(), phScope(0.62)], [0.28, 0.72], 'rt'), PL.row([phSD(), phFX()], [0.46, 0.54], 'rt'),
+    PL.row([oscCol([0, 1, 2], 4), oscCol([3, 4, 5], 4)], [1, 1], 'corr')], ['rt', 'lanes']); } };
 // The largest knob size (to 0.5 px) at which the arrangement fits W x H.
 function fitPhone(root, sp, H) {
   var W = PHONE_W - 2 * PM, ok = function (s) { var Z = phoneSizes(s, sp), r = root.m(W, Z); return r.h <= H - 2 * PM - Z.th / 2 && r.mw <= W + 0.5; };
@@ -1366,32 +1402,121 @@ function fitPhone(root, sp, H) {
   while (hi - lo > 0.5) { var mid = (lo + hi) / 2; if (ok(mid)) lo = mid; else hi = mid; }
   return phoneSizes(Math.floor(lo * 2) / 2, sp);
 }
+// Keypad: type an oscillator's frequency (20-500 Hz) on a 10-key pad. Enter sets it, Cancel / outside / Escape closes.
+var keypad = null;
+function openKeypad(i) {
+  closeKeypad();
+  var Z = GEO.Z, d = PD.freq, typed = '', W = GEO.W, H = GEO.H;
+  var back = el('div', 'position:absolute;inset:0;background:rgba(0,0,0,0.55);z-index:5');
+  var kw = Math.min(64, Math.round((W - 80) / 3)), kh = Math.max(40, Math.round(kw * 0.62)), g = 8, pw = 3 * kw + 2 * g + 24, ph = 24 + 22 + 8 + 44 + 10 + 5 * kh + 4 * g + 12;
+  var pad = el('div', at((W - pw) / 2, Math.max(10, (H - ph) / 2), pw, ph) + ';box-sizing:border-box;border-radius:10px;background:#1c1b1e;box-shadow:0 10px 40px rgba(0,0,0,0.7),inset 0 1px 0 rgba(255,255,255,0.08)', back);
+  pad.setAttribute('role', 'dialog'); pad.setAttribute('aria-label', 'Osc ' + (i + 1) + ' pitch');
+  el('div', at(12, 12, pw - 24) + ';font-size:13px;font-weight:800;letter-spacing:0.12em;text-transform:uppercase;color:' + (i < 3 ? P.X : P.Y), pad, 'Osc ' + (i + 1) + ' pitch');
+  el('div', at(12, 12, pw - 24) + ';text-align:right;font-size:12px;font-weight:700;letter-spacing:0.06em;color:#8f8d92', pad, d.min + '–' + d.max + ' Hz');
+  var disp = el('div', at(12, 42, pw - 24, 44) + ';box-sizing:border-box;padding:0 12px;border-radius:5px;background:#050406;box-shadow:inset 0 2px 5px rgba(0,0,0,0.9);' +
+    'font-size:24px;font-weight:700;letter-spacing:0.04em;line-height:44px;text-align:right;color:' + P.accent + ';text-shadow:0 0 8px ' + P.accentGlow, pad);
+  var show = function () {
+    var v = typed === '' ? null : +typed, bad = v != null && (v < d.min || v > d.max);
+    disp.textContent = (typed === '' ? Math.round(state.osc[i].freq) : typed) + ' Hz';
+    disp.style.opacity = typed === '' ? '0.45' : '1'; disp.style.color = bad ? P.rec : P.accent;
+  };
+  var enter = function () { if (typed !== '') { state.osc[i].freq = clamp(Math.round(+typed), d.min, d.max); syncUI(); } closeKeypad(); };
+  var press = function (t) {
+    if (t === '⌫') typed = typed.slice(0, -1);
+    else if (t === 'C') typed = '';
+    else if (/^\d$/.test(t) && typed.length < 3) typed = (typed === '0' ? '' : typed) + t;
+    show();
+  };
+  var rows = [['7', '8', '9'], ['4', '5', '6'], ['1', '2', '3'], ['C', '0', '⌫']], y0 = 42 + 44 + 10, keep = panel;
+  panel = pad;
+  rows.forEach(function (r, ri) { r.forEach(function (t, ci) {
+    key(12 + ci * (kw + g), y0 + ri * (kh + g), kw, kh, t, null, { fs: 18, aria: t === '⌫' ? 'Delete' : t === 'C' ? 'Clear' : t, onClick: function () { press(t); } });
+  }); });
+  var by = y0 + 4 * (kh + g), bw = (pw - 24 - g) / 2;
+  key(12, by, bw, kh, 'Cancel', null, { fs: 13, onClick: closeKeypad });
+  key(12 + bw + g, by, bw, kh, 'Enter', 'on', { fs: 13, onClick: enter });
+  panel = keep;
+  back.addEventListener('click', function (e) { if (e.target === back) closeKeypad(); });
+  var onKey = function (e) {
+    if (/^\d$/.test(e.key)) press(e.key); else if (e.key === 'Backspace') press('⌫'); else if (e.key === 'Enter') enter(); else if (e.key === 'Escape') closeKeypad(); else return;
+    e.preventDefault(); e.stopPropagation();
+  };
+  document.addEventListener('keydown', onKey, true);
+  keypad = { el: back, off: function () { document.removeEventListener('keydown', onKey, true); } };
+  show();
+}
+function closeKeypad() { if (keypad) { keypad.off(); keypad.el.remove(); keypad = null; } }
+// Signal paths on the phone: drops from each oscillator into its lane in the corridor, the lanes up into Effects, Effects
+// up into the Oscilloscope, the Oscilloscope left into the Spectrum, and Source & Display right into Effects.
+function phoneRoutes(Z) {
+  var G = GEO, R = G.rect, O = G.osc, up = function (x, y) { return 'M' + x + ' ' + y + 'l-3 5h6z'; },
+      left = function (x, y) { return 'M' + x + ' ' + y + 'l5 -3v6z'; }, right = function (x, y) { return 'M' + x + ' ' + y + 'l-5 -3v6z'; };
+  var cx = Math.round((O[0][0] + O[0][2] + O[3][0]) / 2), lx = [cx - RB / 2, cx + RB / 2], wy = Z.ti + Math.round(Z.fs * 2.4) / 2;
+  G.pr = { lane: [], laneHead: [], after: [], afterHeads: [], inP: [], inHeads: [], drops: [], dropY: [], laneX: lx };
+  for (var i = 0; i < 6; i++) {
+    var o = O[i], y = Math.round(o[1] + wy);
+    G.pr.dropY[i] = y;
+    G.pr.drops[i] = i < 3 ? 'M' + (o[0] + o[2]) + ' ' + y + 'H' + lx[0] : 'M' + o[0] + ' ' + y + 'H' + lx[1];
+  }
+  var fx = R.fx, sc = R.scope, sp = R.spec, sd = R.sd, fb = fx[1] + fx[3], ot = O[0][1] - Math.ceil(Z.th / 2);
+  var ty = [fb + Math.round((ot - fb) * 0.4), fb + Math.round((ot - fb) * 0.75)];   // turns: X higher, Y lower
+  var ex = [fx[0] + 14, fx[0] + 14 + RB];                                            // where the lanes enter Effects
+  var ox = [fx[0] + Math.round(fx[2] * 0.62), fx[0] + Math.round(fx[2] * 0.62) + RB]; // Effects -> Oscilloscope
+  var sy = Math.round(sp[1] + sp[3] / 2), iy = Math.round(fx[1] + fx[3] / 2);
+  [0, 1].forEach(function (c) {
+    G.pr.lane[c] = 'V' + ty[c] + 'H' + ex[c] + 'V' + (fb + 6);
+    G.pr.laneHead[c] = up(ex[c], fb + 1);
+    G.pr.after[c] = 'M' + ox[c] + ' ' + fx[1] + 'V' + (sc[1] + sc[3] + 6) + 'M' + sc[0] + ' ' + (sy + (c ? RB / 2 : -RB / 2)) + 'H' + (sp[0] + sp[2] + 6);
+    G.pr.afterHeads[c] = up(ox[c], sc[1] + sc[3] + 1) + left(sp[0] + sp[2] + 1, sy + (c ? RB / 2 : -RB / 2));
+    G.pr.inP[c] = 'M' + (sd[0] + sd[2]) + ' ' + (iy + (c ? RB / 2 : -RB / 2)) + 'H' + (fx[0] - 6);
+    G.pr.inHeads[c] = right(fx[0] - 1, iy + (c ? RB / 2 : -RB / 2));
+  });
+}
+function drawPhoneRoutes() {
+  var G = GEO, R = G.pr, s = '', ext = state.src !== 'tone', lit = ext ? [false, false, false, false, false, false] : routeLit();
+  var path = function (d, col, dotted, w) { return '<path d="' + d + '" style="fill:none;stroke:' + col + ';stroke-width:' + (w || 1.4) + ';stroke-linecap:round' + (dotted ? ';stroke-dasharray:1 3.5' : '') + '"></path>'; };
+  var fill = function (d, col) { return '<path d="' + d + '" style="fill:' + col + '"></path>'; };
+  [0, 1].forEach(function (c) {
+    var col = c ? P.Y : P.X, i0 = c * 3, first = i0 + 2;
+    while (first >= i0 && !lit[first]) first--;   // the lane flows up from Osc 3 / 6: live from the lowest live drop
+    var x = R.laneX[c], bottom = R.dropY[i0 + 2], toneLive = first >= i0, afterLive = toneLive || ext;
+    if (!toneLive) s += path('M' + x + ' ' + bottom + R.lane[c], P.idle, true, 1.6) + fill(R.laneHead[c], P.idle);
+    else {
+      if (first < i0 + 2) s += path('M' + x + ' ' + bottom + 'V' + R.dropY[first], P.idle, true, 1.6);
+      s += path('M' + x + ' ' + R.dropY[first] + R.lane[c], col) + fill(R.laneHead[c], col);
+    }
+    s += path(R.after[c], afterLive ? col : P.idle, !afterLive, afterLive ? 1.4 : 1.6) + fill(R.afterHeads[c], afterLive ? col : P.idle);
+    s += path(R.inP[c], ext ? col : P.idle, !ext, ext ? 1.4 : 1.6) + fill(R.inHeads[c], ext ? col : P.idle);
+  });
+  R.drops.forEach(function (d, i) { var dead = !lit[i]; s += path(d, dead ? P.idle : (i < 3 ? P.X : P.Y), dead, dead ? 1.6 : 1.4); });
+  G.ringSeg.forEach(function (d, li) { var oi = RING_OSC[li], on = fmOn(oi) && !ext; s += path(d, on ? (oi < 3 ? P.X : P.Y) : P.inkMute, false, on ? 2 : 1.4); });
+  routeSvg.innerHTML = s;
+}
 function buildPhone(H) {
+  closeKeypad();
   var L = PHONE_LAYOUT, root = L.tree(), Z = fitPhone(root, L.sp, H);
-  var G = { lk: 'phone', W: PHONE_W, H: H, phone: true, ringSeg: [], osc: [], Z: Z };
-  GEO = G; ui = { syncers: [], osc: [], rings: [] };
+  var G = { lk: 'phone', W: PHONE_W, H: H, phone: true, ringSeg: [], osc: [], rect: {}, Z: Z };
+  GEO = G; ui = { syncers: [], osc: [], rings: [] }; pdisp = null;
   hideTip(); panel.innerHTML = '';
   stage.style.width = PHONE_W + 'px'; stage.style.height = H + 'px';
   var top = PM + Z.th / 2;
   root.d(PM, top, PHONE_W - 2 * PM, H - PM - top, Z);
-  // FM rings between each chord layer and the oscillator it modulates: on the gap between their windows.
-  var rs = Math.max(10, Z.fm - 4), wy = Z.ti + Math.round(Z.fs * 2.4) / 2;   // ring size; wave screen centre below a window's top
+  // FM rings between each chord layer and the oscillator it modulates, in the gap between their windows on the corridor
+  // side (X: right, Y: left).
+  var rs = Math.max(10, Z.fm - 4);
   RING_OSC.forEach(function (oi, li) {
-    var a = G.osc[oi - 1], b = G.osc[oi], cx, cy;
-    if (Math.abs(a[1] - b[1]) < 1) {   // side by side
-      cx = (a[0] + a[2] + b[0]) / 2; cy = a[1] + wy;
-      G.ringSeg[li] = 'M' + (a[0] + a[2]) + ' ' + cy + 'H' + (cx - rs / 2) + 'M' + (cx + rs / 2) + ' ' + cy + 'H' + b[0];
-    } else {   // stacked
-      cx = a[0] + a[2] - Math.max(20, Math.round(a[2] * 0.2)); cy = (a[1] + a[3] + b[1]) / 2;
-      G.ringSeg[li] = 'M' + cx + ' ' + (a[1] + a[3]) + 'V' + (cy - rs / 2) + 'M' + cx + ' ' + (cy + rs / 2) + 'V' + b[1];
-    }
+    var a = G.osc[oi - 1], b = G.osc[oi], inset = Math.max(20, Math.round(a[2] * 0.2));
+    var cx = oi < 3 ? a[0] + a[2] - inset : a[0] + inset, cy = (a[1] + a[3] + b[1]) / 2;
+    G.ringSeg[li] = 'M' + cx + ' ' + (a[1] + a[3]) + 'V' + (cy - rs / 2) + 'M' + cx + ' ' + (cy + rs / 2) + 'V' + b[1];
     fmRing(cx, cy, li, Z.fm + 4, rs, Z.fs, null);
   });
+  phoneRoutes(Z);
   var NS = 'http://www.w3.org/2000/svg';
   routeSvg = document.createElementNS(NS, 'svg');
   routeSvg.setAttribute('width', String(PHONE_W)); routeSvg.setAttribute('height', String(H)); routeSvg.setAttribute('aria-hidden', 'true');
   routeSvg.style.cssText = 'position:absolute;left:0;top:0;overflow:visible;pointer-events:none';
-  panel.insertBefore(routeSvg, panel.firstChild);   // under the windows: the links show only in the gaps
+  panel.appendChild(routeSvg);
+  phPresetPanel();
   syncUI();
 }
 
