@@ -1157,11 +1157,12 @@ function buildScheme(m) {
 // the windows (rows and columns of windows holding blocks of controls); fitPhone finds the largest knob size at which it
 // fits the panel's width and height, and every other size (labels, keys, nameplates, padding, gaps) follows from the
 // knob size (phoneSizes). Height left over is spread evenly between the windows.
-// Layout (Columns, 2026-10-17): on the left Spectrum over Source & Display, on the right the Oscilloscope (screen and
-// a narrow column of beam controls) over Effects; then the X oscillators (1-3) and the Y oscillators (4-6) as two
-// columns with a corridor between them for the signal paths: each oscillator drops into its channel's lane (L / X red,
-// R / Y cyan), the lanes rise straight up the centre into Effects and out of its top into the Oscilloscope, the Oscilloscope feeds the Spectrum, and Source &
-// Display (Mic, Line, File) feeds Effects. The Y windows mirror the X ones; FM rings sit between stacked oscillators on
+// Layout (Columns, 2026-10-17): a thin left column - Spectrum, then Source & Display as one column of keys down to the
+// bottom of the screen - and to its right the Oscilloscope (screen and a narrow column of beam controls), Effects, and
+// the X oscillators (1-3) and Y oscillators (4-6) as two columns on the Oscilloscope's left and right edges, with a
+// corridor between them for the signal paths: each oscillator drops into its channel's lane (L / X red, R / Y cyan),
+// the lanes rise straight up the corridor's centre into Effects and out of its top into the Oscilloscope, the
+// Oscilloscope feeds the Spectrum, and Source & Display (Mic, Line, File) feeds Effects. The Y windows mirror the X ones; FM rings sit between stacked oscillators on
 // the corridor side, red when on. Keys show their state by their label (light grey, white when on), not a light.
 // The preset list opens over the Spectrum (Presets key); an oscillator's pitch readout opens a keypad, the Speed readout a
 // large drag pad.
@@ -1320,8 +1321,8 @@ function phSpec() {
     GEO.specIn = [x, y, w, h];
   }), { id: 'spec' });
 }
-function phTop() {   // Presets (opens the list over the Spectrum) | the Night / Day key, named for the scheme it switches to
-  return PL.keys(['Presets', 'Night'], 2, function (i, x, y, w, h, Z) {
+function phTop() {   // Presets (opens the list over the Spectrum), the Night / Day key, named for the scheme it switches to
+  return PL.keys(['Presets', 'Night'], 1, function (i, x, y, w, h, Z) {
     if (i === 0) ui.presetsK = key(x, y, w, h, 'Presets', presetsOpen ? 'on' : 'off', { fs: Z.fs, small: Z.small, aria: 'Presets', onClick: function () { presetsOpen = !presetsOpen; phPresetPanel(); } });
     if (i === 1) { var o = 1 - schemeIdx; ui.schemeK = key(x, y, w, h, SCHEMES[o].name, null, { fs: Z.fs, small: Z.small, aria: 'Switch to the ' + SCHEMES[o].name + ' scheme', onClick: function () { setScheme(o); } }); }
   });
@@ -1332,14 +1333,14 @@ function phPlay() {   // one key: ▶ while stopped, ■ while playing
   });
 }
 function phMuteFreeze() {
-  return PL.keys(['Mute', 'Freeze'], 2, function (i, x, y, w, h, Z) {
+  return PL.keys(['Mute', 'Freeze'], 1, function (i, x, y, w, h, Z) {
     if (i === 0) ui.mute = key(x, y, w, h, 'Mute', 'off', { tint: 'blue', fs: Z.fs, small: Z.small, aria: 'Mute audio', onClick: function () { state.mute = !state.mute; ui.mute.set(state.mute ? 'rec' : 'off'); setGain(); } });
     if (i === 1) ui.freeze = key(x, y, w, h, 'Freeze', 'off', { tint: 'blue', fs: Z.fs, small: Z.small, aria: 'Freeze display', onClick: function () { state.freeze = !state.freeze; ui.freeze.set(state.freeze ? 'on' : 'off'); } });
   });
 }
-function phInput() {   // Tone, Mic, Line, File (setSource order), as a square: Tone Mic / Line File
+function phInput() {   // Tone, Mic, Line, File (setSource order), one under another
   var pos = [];
-  return PL.keys(['Tone', 'Mic', 'Line', 'File'], 2, function (i, x, y, w, h, Z) {
+  return PL.keys(['Tone', 'Mic', 'Line', 'File'], 1, function (i, x, y, w, h, Z) {
     pos.push([x, y]);
     if (i === 3) { ui.src = radio(pos, w, h, ['Tone', 'Mic', 'Line', 'File'], function (j) { setSource(['tone', 'mic', 'line', 'file'][j]); }, Z.fs, Z.small); pos = []; }
   });
@@ -1366,8 +1367,10 @@ function phPresetPanel() {
   panel = keep;
   drawPresets();
 }
-// Source & Display: Presets | Night / Day, Play / Stop, Mute | Freeze, Tone Mic / Line File.
-function phSD() { return PL.win('Source & Display', 'sd', PL.col([phTop(), phPlay(), phMuteFreeze(), phInput()], 'in'), { id: 'sd' }); }
+// Source (Source & Display): one column of keys - Presets, Night / Day, Play / Stop, Mute, Freeze, Tone, Mic, Line,
+// File - spread down the window's height. Named just "Source" here: the nameplate is what sets the column's minimum
+// width, and the longer name would keep it wide.
+function phSD() { return PL.win('Source', 'sd', PL.col([phTop(), phPlay(), phMuteFreeze(), phInput()], 'in'), { id: 'sd' }); }
 // Effects: one row of the four stages (a short B bypass key under each), Speed and Detune. Speed is Time x Fast as one
 // knob (0.0001x to 1000x, log), labelled, with its value in a window under the label that opens the Speed pad.
 var TIMEALL = { get t() { return state.masterTime * state.masterTimeFast; },
@@ -1399,8 +1402,8 @@ var FX_CH = 2 * RB + 6;
 function fxKnobs(items, under, uh) {
   var n = items.length;
   var req = function (Z) { return items.map(function (it) { return Math.max(Z.S, labW(it[0], Z.fs)) + 4; }); };
-  var split = function (x, w, Z) {   // x: the row's left edge on the panel
-    var c = PHONE_W / 2, L = c - FX_CH / 2 - x, R = x + w - (c + FX_CH / 2), q = req(Z), best = null;
+  var split = function (x, w, Z) {   // x: the row's left edge on the panel; the corridor runs up its centre
+    var c = x + w / 2, L = c - FX_CH / 2 - x, R = x + w - (c + FX_CH / 2), q = req(Z), best = null;
     for (var nl = 0; nl <= n; nl++) {
       var sl = 0, sr = 0;
       q.forEach(function (v, i) { if (i < nl) sl += v; else sr += v; });
@@ -1473,10 +1476,21 @@ function phOsc(i) {
   return PL.win(main ? 'Osc ' + (i + 1) + '  ' + (i < 3 ? 'X-L' : 'Y-R') : 'Osc ' + (i + 1), i < 3 ? 'x' : 'y', body, { osc: i });
 }
 var oscCol = function (a) { return PL.col(a.map(function (i) { return phOsc(i); }), 'fm'); };
-// Columns (chosen 2026-10-17 from six trial arrangements).
+// Each node reports the widest minimum width among them, so nodes in separate rows make one straight column.
+function sameWidth(nodes) {
+  return nodes.map(function (n) {
+    return { m: function (w, Z) { var r = n.m(w, Z); return { h: r.h, mw: Math.max.apply(null, nodes.map(function (k) { return k.m(w, Z).mw; })), f: r.f }; }, d: n.d };
+  });
+}
+// Columns (chosen 2026-10-17 from six trial arrangements; left column added the same day). A thin left column - Spectrum
+// beside the Oscilloscope, then Source running down to the bottom - and everything else to its right, sharing the
+// Oscilloscope's left and right edges: Effects, and under it the two oscillator columns with the corridor between them.
 var PHONE_LAYOUT = { id: 'columns', name: 'Columns', sp: 0.6, tree: function () {
-  return PL.col([PL.row([PL.col([phSpec(), phSD()], 'win'), PL.col([phScope(), phFX()], 'rt')], [0, 1], 'rt'),
-    PL.row([oscCol([0, 1, 2]), oscCol([3, 4, 5])], [1, 1], 'corr')], ['lanes']); } };
+  var left = sameWidth([phSpec(), phSD()]);
+  return PL.col([
+    PL.row([left[0], phScope()], [0, 1], 'rt'),
+    PL.row([left[1], PL.col([phFX(), PL.row([oscCol([0, 1, 2]), oscCol([3, 4, 5])], [1, 1], 'corr')], ['lanes'])], [0, 1], 'rt')
+  ], ['rt']); } };
 // The largest knob size (to 0.5 px) at which the arrangement fits W x H.
 function fitPhone(root, sp, H) {
   var W = PHONE_W - 2 * PM, ok = function (s) { var Z = phoneSizes(s, sp), r = root.m(W, Z); return r.h <= H - 2 * PM - Z.th / 2 && r.mw <= W + 0.5; };
@@ -1602,7 +1616,8 @@ function closeTimePad() { if (timePad) { timePad.off(); timePad.el.remove(); tim
 function phoneRoutes(Z) {
   var G = GEO, R = G.rect, O = G.osc, up = function (x, y) { return 'M' + x + ' ' + y + 'l-3 5h6z'; },
       left = function (x, y) { return 'M' + x + ' ' + y + 'l5 -3v6z'; }, right = function (x, y) { return 'M' + x + ' ' + y + 'l-5 -3v6z'; };
-  var cx = PHONE_W / 2, lx = [cx - RB / 2, cx + RB / 2];   // the corridor and Effects' channel share the centre line
+  // The corridor (midway between the X and Y oscillator columns) and Effects' channel share one centre line.
+  var cx = (O[0][0] + O[0][2] + O[3][0]) / 2, lx = [cx - RB / 2, cx + RB / 2];
   G.pr = { lane: [], laneHead: [], after: [], afterHeads: [], inP: [], inHeads: [], drops: [], dropY: [], laneX: lx };
   for (var i = 0; i < 6; i++) {
     var o = O[i], gr = ui.osc[i].gr, y = Math.round(gr[1] + gr[3] / 2);   // level with the wave screen's centre
