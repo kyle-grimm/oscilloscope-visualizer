@@ -11,19 +11,28 @@
   /* Mobile: the panel is scaled to fit by script, so the page never scrolls, bounces, zooms or inflates its text. */
   html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
   body { position: fixed; inset: 0; overscroll-behavior: none; touch-action: none; -webkit-tap-highlight-color: transparent; }
-  #stage { position: absolute; left: 0; top: 0; transform-origin: 0 0; color: #ebebeb;
+  /* Phone layouts scroll (#scroller), with the scope optionally pinned above in #pin; other layouts fit the window. */
+  #scroller { position: fixed; left: 0; right: 0; top: 0; bottom: 0; overflow: hidden; }
+  #scroller.scroll { overflow-x: hidden; overflow-y: auto; touch-action: pan-y; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+  #scroller.scroll::-webkit-scrollbar { display: none; }
+  #spacer { position: relative; overflow: hidden; }
+  #pin { position: fixed; left: 0; top: 0; z-index: 2; display: none; overflow: hidden; }
+  .stg { position: absolute; left: 0; top: 0; transform-origin: 0 0; color: #ebebeb;
     font-family: 'Barlow Semi Condensed', 'Segoe UI', system-ui, sans-serif; user-select: none; -webkit-user-select: none; }
-  #panel { position: absolute; left: 0; top: 0; width: 100%; height: 100%; background: linear-gradient(to bottom, #2b2a2d, #242324 48px); }
+  .panel { position: absolute; left: 0; top: 0; width: 100%; height: 100%; background: linear-gradient(to bottom, #2b2a2d, #242324 48px); }
   button { outline: none; }
   button:focus-visible { box-shadow: 0 0 0 2px #cfabf6 !important; }
   .plist::-webkit-scrollbar { display: none; }
   .plist [data-i]:hover { color: #ffffff; }
-  #tip { position: absolute; display: none; padding: 3px 7px; border-radius: 3px; background: #050406; border: 1px solid #515053; color: #cfabf6;
-    font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; white-space: nowrap; pointer-events: none; z-index: 10; transform: translateX(-50%); }
+  #tip { position: fixed; display: none; padding: 3px 7px; border-radius: 3px; background: #050406; border: 1px solid #515053; color: #cfabf6;
+    font-family: 'Barlow Semi Condensed', 'Segoe UI', system-ui, sans-serif; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+    white-space: nowrap; pointer-events: none; z-index: 10; transform: translate(-50%, -100%); }
 </style>
 </head>
 <body>
-<div id="stage"><div id="panel" aria-label="Loop panel"></div><div id="tip"></div></div>
+<div id="scroller"><div id="spacer"><div id="stage" class="stg"><div id="panel" class="panel" aria-label="Loop panel"></div></div></div></div>
+<div id="pin"><div id="pinStage" class="stg"><div id="pinPanel" class="panel" aria-label="Oscilloscope"></div></div></div>
+<div id="tip"></div>
 <input id="fileIn" type="file" accept="audio/*" hidden>
 <pre id="__report" hidden></pre>
 <script>
@@ -35,8 +44,9 @@
    or, with FM on (the ring between it and its mother), frequency-modulates its mother and leaves the mix.
    Effects: Filter -> Band Pass -> Saturation -> Chorus, each bypassable. Output: 0.2 gain, then the original's fatigue guard.
    Panel: osc 1-3 = X (left, red), osc 4-6 = Y (right, cyan). Two windows: Source & Display, Effects (with Master Time, Fast,
-   Detune), plus the beam controls inside the Oscilloscope frame. A Scheme window cycles the panel looks borrowed from the
-   Video Feedback Visualizer (Original + 6, see schemes); the pre-scheme file is snapshots/oscilloscope-visualizer_2026-10-17_1122.html.
+   Detune), plus the beam controls inside the Oscilloscope frame. A Scheme window switches the Night / Day looks borrowed
+   from the Video Feedback Visualizer (see schemes). Phones (portrait, 600 px wide or less, or #phone) get six scrolling
+   layouts, chosen in their View window (see phone layouts). Earlier files are in snapshots/.
    The panel is 4:3 (L9 landscape, 1440 x 1080) or 3:4 (L9v portrait, 900 x 1200). */
 
 var REPORT = [];
@@ -48,6 +58,8 @@ var P = { ink: '#ebebeb', inkDim: '#a6a4a8', inkMute: '#8f8d92', line: '#515053'
 var TAU = Math.PI * 2;
 function clamp(v, a, b) { a = a == null ? 0 : a; b = b == null ? 1 : b; return v < a ? a : v > b ? b : v; }
 var stage = document.getElementById('stage'), panel = document.getElementById('panel'), tip = document.getElementById('tip');
+var scroller = document.getElementById('scroller'), spacer = document.getElementById('spacer'), pinBox = document.getElementById('pin'),
+    pinStage = document.getElementById('pinStage'), pinPanel = document.getElementById('pinPanel'), mainPanel = panel;   // el() builds into panel
 function el(tag, style, parent, text) {
   var e = document.createElement(tag);
   if (style) e.style.cssText = style;
@@ -361,11 +373,11 @@ document.getElementById('fileIn').addEventListener('change', function (e) {
 var dragging = false;
 function stageScale() { return parseFloat(stage.dataset.scale || '1'); }
 function showTip(target, text) {
-  var r = target.getBoundingClientRect(), s = stage.getBoundingClientRect(), k = stageScale();
+  var r = target.getBoundingClientRect();
   tip.textContent = text;
   tip.style.display = 'block';
-  tip.style.left = ((r.left + r.width / 2 - s.left) / k) + 'px';
-  tip.style.top = ((r.top - s.top) / k - 24) + 'px';
+  tip.style.left = Math.max(70, Math.min(window.innerWidth - 70, r.left + r.width / 2)) + 'px';
+  tip.style.top = Math.max(26, r.top - 4) + 'px';
 }
 function hideTip() { tip.style.display = 'none'; }
 function dragValue(target, ctl, range) {
@@ -396,7 +408,8 @@ function sec(x, y, w, h, title, o) {
   FAM = o.fam || '';
   if (o.fam) famFill(o.fam, x, y, w, h, o.shape || roundedPath([[0, 0], [w, 0], [w, h], [0, h]]));
   var b = el('div', at(x, y, w, h) + ';box-sizing:border-box;border:1px solid ' + (o.line || P.inkMute) + ';border-radius:3px;pointer-events:none');
-  var t = el('span', 'position:absolute;left:12px;top:-9px;padding:' + (o.tabLine ? '1px 7px;border:1px solid ' + o.tabLine : '2px 8px') + ';background:' + (o.tab || P.ink) + ';color:' + (o.tabInk || '#19181a') + ';font-size:10px;font-weight:800;letter-spacing:0.16em;text-transform:uppercase;line-height:14px;white-space:pre', b, title);
+  var tf = o.tfs || 10, tl = Math.round(tf * 1.4);   // nameplate text size and line height (10 / 14 outside the phone layouts)
+  var t = el('span', 'position:absolute;left:' + (o.tabX || 12) + 'px;top:' + (-(tl + 4) / 2) + 'px;padding:' + (o.tabLine ? '1px 7px;border:1px solid ' + o.tabLine : '2px 8px') + ';background:' + (o.tab || P.ink) + ';color:' + (o.tabInk || '#19181a') + ';font-size:' + tf + 'px;font-weight:800;letter-spacing:' + (tf > 10 ? 0.12 : 0.16) + 'em;text-transform:uppercase;line-height:' + tl + 'px;white-space:pre', b, title);
   if (o.fam && !o.plain) { b.className = 'frame'; b.dataset.fam = o.fam; t.className = 'tab'; t.dataset.fam = o.fam; }
   return b;
 }
@@ -616,21 +629,26 @@ function geometry(lk, H) {
 }
 
 // ---------------------------------------------------------------- build the panel
-var ui = { syncers: [] }, GEO = null, scope = null, sx = null, ana = null, pdisp = null, presetLines = 3, routeSvg = null;
-function build(lk, H) {
-  var G = geometry(lk, H);
-  GEO = G; ui = { syncers: [] };
-  hideTip(); panel.innerHTML = '';
-  stage.style.width = G.W + 'px'; stage.style.height = G.H + 'px';
-  // Oscilloscope: a framed section with its nameplate; inside, a square bezel and canvas with no text.
-  var s = G.scope, bs = G.bez[2], nq = G.notch, nx = nq[0] - s[0], ny = nq[1] - s[1];
-  sec(s[0], s[1], s[2], s[3], 'Oscilloscope', { fam: 'scope', shape: roundedPath([[0, 0], [s[2], 0], [s[2], ny], [nx, ny], [nx, s[3]], [0, s[3]]]) });
-  var bez = el('div', at(G.bez[0], G.bez[1], bs, bs) + ';box-sizing:border-box;padding:12px;border-radius:8px;background:#0b0b0c;box-shadow:inset 0 2px 6px rgba(0,0,0,0.9),0 1px 0 rgba(255,255,255,0.06)');
+var ui = { syncers: [] }, GEO = null, scope = null, sx = null, ana = null, pdisp = null, presetLines = 3, routeSvg = null, PLH = 20;   // PLH: preset row height
+// The square scope screen: a bezel (bs square, 12 px rim) holding the canvas.
+function scopeScreen(x, y, bs) {
+  var bez = el('div', at(x, y, bs, bs) + ';box-sizing:border-box;padding:12px;border-radius:8px;background:#0b0b0c;box-shadow:inset 0 2px 6px rgba(0,0,0,0.9),0 1px 0 rgba(255,255,255,0.06)');
   bez.setAttribute('aria-label', 'Oscilloscope'); bez.className = 'bezel';
   var scrIn = el('div', 'position:relative;width:100%;height:100%;border-radius:3px;background:#050406;overflow:hidden', bez);
   scope = el('canvas', 'position:absolute;inset:0;width:100%;height:100%', scrIn);
   scope.cssW = bs - 24; scope.width = scope.height = scope.cssW * 2;
   sx = scope.getContext('2d'); sx.fillStyle = '#050406'; sx.fillRect(0, 0, scope.width, scope.height);
+}
+function build(lk, H) {
+  if (lk === 'phone') { buildPhone(); return; }
+  var G = geometry(lk, H);
+  GEO = G; ui = { syncers: [] };
+  hideTip(); panel = mainPanel; panel.innerHTML = ''; pinPanel.innerHTML = '';
+  stage.style.width = G.W + 'px'; stage.style.height = G.H + 'px';
+  // Oscilloscope: a framed section with its nameplate; inside, a square bezel and canvas with no text.
+  var s = G.scope, bs = G.bez[2], nq = G.notch, nx = nq[0] - s[0], ny = nq[1] - s[1];
+  sec(s[0], s[1], s[2], s[3], 'Oscilloscope', { fam: 'scope', shape: roundedPath([[0, 0], [s[2], 0], [s[2], ny], [nx, ny], [nx, s[3]], [0, s[3]]]) });
+  scopeScreen(G.bez[0], G.bez[1], bs);
   buildScopeCtl(G);
   // The notch: the frame outline steps in below Hue Spd to the screen's edge (drawn over the frame border in the panel colour).
   var notch = el('div', at(nq[0], nq[1], nq[2] - nq[0] + 1, nq[3] - nq[1] + 1) + ';box-sizing:border-box;border-left:1px solid ' + P.inkMute + ';border-top:1px solid ' + P.inkMute + ';border-top-left-radius:3px;background:#242324;pointer-events:none');
@@ -679,24 +697,27 @@ function buildOscillators(G) {
   });
   // FM rings: lit = the oscillator on the right frequency-modulates the one on its left and leaves the mix.
   ui.rings = [];
-  G.rings.forEach(function (rp, li) {
-    var cx = rp[0], cy = rp[1], oi = RING_OSC[li];
-    var hit = el('button', at(cx - 14, cy - 14, 28, 28) + ';padding:0;border:none;background:none;cursor:pointer;display:flex;align-items:center;justify-content:center');
-    hit.type = 'button';
-    var ring = el('span', 'width:16px;height:16px;box-sizing:border-box;border-radius:50%;border:2px solid ' + P.accent, hit);
-    cl(cx, cy + 15, 30, 'FM', PRINT(8)).className = 'stage-label';
-    var set = function () {
-      var on = state.osc[oi].fm;
-      ring.style.borderColor = on ? P.accent : '#4c5566';
-      ring.style.background = on ? 'radial-gradient(circle,' + P.accent + ' 0 3px,transparent 3.5px)' : 'none';
-      ring.style.boxShadow = on ? '0 0 7px ' + P.accentGlow : 'none';
-      hit.setAttribute('aria-label', 'FM: oscillator ' + (oi + 1) + ' modulates oscillator ' + oi + (on ? ' (on)' : ' (off)'));
-      hit.setAttribute('aria-pressed', on ? 'true' : 'false');
-      ui.osc[oi].k[0].lab.textContent = on ? 'Depth' : 'Gain';
-    };
-    hit.addEventListener('click', function () { state.osc[oi].fm = !state.osc[oi].fm; set(); drawRoutes(); });
-    ui.rings.push(set);
-  });
+  G.rings.forEach(function (rp, li) { fmRing(rp[0], rp[1], li, 28, 16, 8, [rp[0], rp[1] + 15]); });
+}
+// FM ring li centred on (cx, cy): a hit x hit button around an rs ring, its 'FM' label (fs) centred at lab.
+function fmRing(cx, cy, li, hit, rs, fs, lab) {
+  var oi = RING_OSC[li];
+  var b = el('button', at(cx - hit / 2, cy - hit / 2, hit, hit) + ';padding:0;border:none;background:none;cursor:pointer;display:flex;align-items:center;justify-content:center');
+  b.type = 'button';
+  var ring = el('span', 'width:' + rs + 'px;height:' + rs + 'px;box-sizing:border-box;border-radius:50%;border:2px solid ' + P.accent, b);
+  cl(lab[0], lab[1], 30, 'FM', PRINT(fs)).className = 'stage-label';
+  var dot = Math.round(rs * 0.19);
+  var set = function () {
+    var on = state.osc[oi].fm;
+    ring.style.borderColor = on ? P.accent : '#4c5566';
+    ring.style.background = on ? 'radial-gradient(circle,' + P.accent + ' 0 ' + dot + 'px,transparent ' + (dot + 0.5) + 'px)' : 'none';
+    ring.style.boxShadow = on ? '0 0 7px ' + P.accentGlow : 'none';
+    b.setAttribute('aria-label', 'FM: oscillator ' + (oi + 1) + ' modulates oscillator ' + oi + (on ? ' (on)' : ' (off)'));
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    ui.osc[oi].k[0].lab.textContent = on ? 'Depth' : 'Gain';
+  };
+  b.addEventListener('click', function () { state.osc[oi].fm = !state.osc[oi].fm; set(); drawRoutes(); });
+  ui.rings.push(set);
 }
 
 // Source & Display: transport, Mute / Freeze / Hold, input, display mode, trace knobs, then the preset list in what is left.
@@ -761,9 +782,14 @@ function buildSD(m) {
 
   // Preset list: every preset is a line; tap or click one to select and load it, scroll with the wheel or a finger.
   var lx = x + 16, ly = r1 + 38, lw = iw, ny = y + h - 42, lh = ny - 10 - ly;
-  presetLines = Math.max(1, Math.floor((lh - 10) / 20));
-  pdisp = el('div', at(lx, ly, lw, 10 + presetLines * 20) + ';box-sizing:border-box;padding:5px 0;border-radius:4px;background:#050406;' +
-    'box-shadow:inset 0 2px 5px rgba(0,0,0,0.9),0 1px 0 rgba(255,255,255,0.06);font-size:11px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;line-height:20px;color:' + P.accent + ';text-shadow:0 0 6px ' + P.accentGlow + ';' +
+  presetList(lx, ly, lw, Math.max(1, Math.floor((lh - 10) / 20)), 20, 11);
+  presetNav(lx, ny, lw, 30, 10);
+}
+// The preset list (lines rows of lh px, fs text) and its Load / Save / Rand keys (h tall, fs text), shared by all layouts.
+function presetList(lx, ly, lw, lines, lh, fs) {
+  presetLines = lines; PLH = lh;
+  pdisp = el('div', at(lx, ly, lw, 10 + presetLines * lh) + ';box-sizing:border-box;padding:5px 0;border-radius:4px;background:#050406;' +
+    'box-shadow:inset 0 2px 5px rgba(0,0,0,0.9),0 1px 0 rgba(255,255,255,0.06);font-size:' + fs + 'px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;line-height:' + lh + 'px;color:' + P.accent + ';text-shadow:0 0 6px ' + P.accentGlow + ';' +
     'white-space:pre;overflow-x:hidden;overflow-y:auto;scrollbar-width:none;touch-action:pan-y;overscroll-behavior:contain');
   pdisp.className = 'plist';
   pdisp.setAttribute('role', 'listbox'); pdisp.setAttribute('aria-label', 'Presets');
@@ -772,6 +798,8 @@ function buildSD(m) {
     if (!it) return;
     presetSel = +it.getAttribute('data-i'); loadSel();
   });
+}
+function presetNav(lx, ny, lw, h, fs) {
   var nw = (lw - 12) / 3;
   var nav = [['Load', 'Load preset', loadSel],
              ['Save', 'Save preset', function () {
@@ -779,7 +807,7 @@ function buildSD(m) {
                else { PRESETS.push(capturePreset('User ' + (PRESETS.length - FACTORY + 1))); presetSel = PRESETS.length - 1; }
                savePresets(); drawPresets(); }],
              ['Rand', 'Randomize', function () { randomize(); syncUI(); }]];
-  nav.forEach(function (n, j) { key(lx + j * (nw + 6), ny, nw, 30, n[0], null, { fs: 10, aria: n[1], onClick: n[2] }); });
+  nav.forEach(function (n, j) { key(lx + j * (nw + 6), ny, nw, h, n[0], null, { fs: fs, aria: n[1], onClick: n[2] }); });
 }
 function loadSel() { applyPreset(PRESETS[presetSel]); syncUI(); }
 
@@ -858,6 +886,11 @@ function drawRoutes() {
   // pair into Effects lights instead. The paths after Effects light whenever something feeds them.
   var G = GEO, s = '', ext = state.src !== 'tone', lit = ext ? [false, false, false, false, false, false] : routeLit();
   var path = function (d, col, dotted, w) { return '<path d="' + d + '" style="fill:none;stroke:' + col + ';stroke-width:' + (w || 1.4) + ';stroke-linecap:round' + (dotted ? ';stroke-dasharray:1 4' : '') + '"></path>'; };
+  if (G.phone) {   // phone layouts draw only the FM links between stacked oscillator windows
+    G.ringSeg.forEach(function (d, li) { var oi = RING_OSC[li], on = fmOn(oi) && !ext; s += path(d, on ? (oi < 3 ? P.X : P.Y) : P.inkMute, false, on ? 2 : 1.4); });
+    routeSvg.innerHTML = s;
+    return;
+  }
   var fill = function (d, col) { return '<path d="' + d + '" style="fill:' + col + '"></path>'; };
   [0, 1].forEach(function (c) {
     var col = c ? P.Y : P.X, i0 = c * 3, first = i0;
@@ -889,9 +922,9 @@ function drawPresets() {
     it.setAttribute('data-i', String(i)); it.setAttribute('role', 'option'); it.setAttribute('aria-selected', i === presetSel ? 'true' : 'false');
   });
   // Keep the selected line in view.
-  var top = 5 + presetSel * 20, vh = pdisp.clientHeight - 10;
+  var top = 5 + presetSel * PLH, vh = pdisp.clientHeight - 10;
   if (top < pdisp.scrollTop) pdisp.scrollTop = top - 5;
-  else if (top + 20 > pdisp.scrollTop + vh) pdisp.scrollTop = top + 20 - vh + 5;
+  else if (top + PLH > pdisp.scrollTop + vh) pdisp.scrollTop = top + PLH - vh + 5;
 }
 function drawWave(i) {
   var w = state.osc[i].wave, g = ui.osc[i].g;
@@ -914,23 +947,18 @@ function syncUI() {
 
 // ---------------------------------------------------------------- schemes (from the Video Feedback Visualizer)
 // Panel looks from the sibling app (kyle-grimm/video-feedback-visualizer, lab.js): its two standard schemes, Night (Day's
-// knobs and font with Favourite 6 tuned's colours, texture and nameplates) and Day (Favourite 17 tuned 2), and four of its
-// 5★ favourites, kept as the Lab's feature values plus their colour jitter, and rendered by a port of the Lab's resolve and
-// styleCss. Original adds no CSS, so the panel is exactly the look it had before. The Scheme window (◀ name ▶) cycles them;
-// the choice is kept in localStorage.
+// knobs and font with Favourite 6 tuned's colours, texture and nameplates) and Day (Favourite 17 tuned 2), kept as the
+// Lab's feature values plus their colour jitter and rendered by a port of the Lab's resolve and styleCss. The Night / Day
+// keys (Scheme window, or the View window on phones) switch them; the choice is kept in localStorage. (2026-10-17: four
+// 5★ favourites and the pre-scheme Original were tried and dropped; the pre-scheme file is in snapshots/.)
 // Each window is one of the Lab's five colour families, in the feedback app's order: Oscilloscope = Feedback, Spectrum =
 // Chromakey, Source & Display = Transform, Effects = Color, Scheme = Layers. The X and Y oscillator windows take the scheme's
 // window treatment in their own channel hues (their outlines and nameplates keep the channel colours).
 var SCH_KEYS = ['hue.feedback', 'hue.chroma', 'hue.transform', 'hue.color', 'hue.layers', 'panel.sat', 'panel.light', 'stage', 'accent', 'outline',
   'texture', 'texStrength', 'sheen', 'cap', 'skirt', 'pointer', 'pointerColor', 'scale', 'font', 'weight', 'case', 'tracking', 'labelColor', 'nameplate'];
 var SCHEMES = [
-  { id: 'original', name: 'Original' },
   {"id":"night","name":"Night","f":["red","lime","violet","blue","neutral","rich","pale","slate","cyan","none","scanlines","subtle","soft","graphite","knurled","line","family","ticks","sairaC","700","upper","tight","familyDark","black"],"j":{"h":[10.917,-10.665,2.294,0.226,-2.808],"s":[0.004,0.043,-0.063,0.025,-0.062],"l":0.003,"p":0.005}},
-  {"id":"day","name":"Day","f":["red","lime","violet","amber","blue","rich","pale","light","cyan","family","hatch","subtle","soft","graphite","knurled","line","family","ticks","sairaC","700","upper","tight","familyDark","ink"],"j":{"h":[9.091,-8.965,-9.177,-3.191,-5.68],"s":[0.036,-0.034,-0.051,0.053,0.086],"l":-0.006,"p":-0.001}},
-  {"id":"fav1","name":"Fav 1","f":["violet","red","yellow","green","teal","vivid","pale","black","magenta","gray","hatch","subtle","soft","graphite","knurled","line","family","ticks","barlowSC","500","title","normal","familyDark","outline"],"j":{"h":[4.153,13.805,20.73,-5.788,1.142],"s":[-0.008,0.088,0.091,0.054,-0.033],"l":0.015,"p":0.005}},
-  {"id":"fav3","name":"Fav 3","f":["yellow","magenta","cyan","red","neutral","vivid","pale","black","red","none","brushed","subtle","soft","graphite","knurled","line","black","ticks","teko","700","title","normal","familyDark","panel"],"j":{"h":[2.656,6.977,-3.95,0.914,2.631],"s":[-0.076,-0.004,0.093,0.012,0.032],"l":0.018,"p":0.016}},
-  {"id":"fav10","name":"Fav 10","f":["lime","neutral","cyan","red","violet","soft","deep","black","white","family","grille","subtle","soft","black","smooth","line","ink","ticks","barlowSC","700","upper","normal","accent","dark"],"j":{"h":[2.322,-4.476,-4.284,-3.634,-3.578],"s":[-0.099,-0.087,0.069,0.042,0.045],"l":0.001,"p":-0.011}},
-  {"id":"fav11","name":"Fav 11","f":["yellow","lime","violet","magenta","blue","soft","mid","slate","white","gray","flat","subtle","glossy","chrome","fluted","line","family","ticks","robotoC","600","upper","normal","dim","outline"],"j":{"h":[1.057,3.298,-5.377,1.891,-6.355],"s":[-0.022,-0.052,0.074,0.019,-0.09],"l":0.018,"p":-0.008}}
+  {"id":"day","name":"Day","f":["red","lime","violet","amber","blue","rich","pale","light","cyan","family","hatch","subtle","soft","graphite","knurled","line","family","ticks","sairaC","700","upper","tight","familyDark","ink"],"j":{"h":[9.091,-8.965,-9.177,-3.191,-5.68],"s":[0.036,-0.034,-0.051,0.053,0.086],"l":-0.006,"p":-0.001}}
 ];
 var SCH_FAMS = ['scope', 'spec', 'sd', 'fx', 'scheme'], SCH_XY = { x: 358, y: 188 };   // X / Y: the channel hues of P.X, P.Y
 var HUES = { red: 0, orange: 24, amber: 40, yellow: 54, lime: 85, green: 125, mint: 150, teal: 168, cyan: 188, sky: 200, blue: 215, indigo: 245, violet: 272, magenta: 305, pink: 335, neutral: null };
@@ -1002,56 +1030,56 @@ function famColors(g) {
 }
 function schemeCss(g) {
   var css = '', fc = famColors(g), stageC = hsl(g.sHue, g.sSat, g.sLight), tx = schTexture(g), acc = hsl(g.accentHue, g.accSat, 0.8), lightStage = g.sLight >= 0.5;
-  Object.keys(fc).forEach(function (k) { css += '#stage [data-fam="' + k + '"]{--anod:' + fc[k].anod + ';--fc:' + fc[k].fc + '}\n'; });
+  Object.keys(fc).forEach(function (k) { css += '.stg [data-fam="' + k + '"]{--anod:' + fc[k].anod + ';--fc:' + fc[k].fc + '}\n'; });
   css += 'html,body{background:' + stageC + '!important}\n';
-  css += '#panel{background:linear-gradient(to bottom,' + hsl(g.sHue, g.sSat, g.sLight + 0.03) + ',' + stageC + ' 48px)!important}\n';
-  css += '#stage .notch{background:' + stageC + '!important}\n';
-  css += '#stage .fam{background-color:var(--anod)!important;background-image:' + tx.img + '!important;background-size:' + tx.size + '!important}\n';
+  css += '.panel{background:linear-gradient(to bottom,' + hsl(g.sHue, g.sSat, g.sLight + 0.03) + ',' + stageC + ' 48px)!important}\n';
+  css += '.stg .notch{background:' + stageC + '!important}\n';
+  css += '.stg .fam{background-color:var(--anod)!important;background-image:' + tx.img + '!important;background-size:' + tx.size + '!important}\n';
   css += {
-    filled: '#stage .tab{background:var(--fc)!important;color:#19181a!important}',
-    dark: '#stage .tab{background:#141316!important;color:var(--fc)!important;box-shadow:0 0 0 1px var(--fc)}',
-    ink: '#stage .tab{background:#ebebeb!important;color:#19181a!important}',
-    outline: '#stage .tab{background:' + stageC + '!important;color:var(--fc)!important;box-shadow:inset 0 0 0 1px var(--fc)}',
-    black: '#stage .tab{background:#111013!important;color:#ebebeb!important}',
-    panel: '#stage .tab{background:color-mix(in srgb,var(--anod) 70%,#000)!important;color:#ebebeb!important}',
-    underline: '#stage .tab{background:' + stageC + '!important;color:#ebebeb!important;box-shadow:inset 0 -2px 0 var(--fc)}'
+    filled: '.stg .tab{background:var(--fc)!important;color:#19181a!important}',
+    dark: '.stg .tab{background:#141316!important;color:var(--fc)!important;box-shadow:0 0 0 1px var(--fc)}',
+    ink: '.stg .tab{background:#ebebeb!important;color:#19181a!important}',
+    outline: '.stg .tab{background:' + stageC + '!important;color:var(--fc)!important;box-shadow:inset 0 0 0 1px var(--fc)}',
+    black: '.stg .tab{background:#111013!important;color:#ebebeb!important}',
+    panel: '.stg .tab{background:color-mix(in srgb,var(--anod) 70%,#000)!important;color:#ebebeb!important}',
+    underline: '.stg .tab{background:' + stageC + '!important;color:#ebebeb!important;box-shadow:inset 0 -2px 0 var(--fc)}'
   }[g.tab] + '\n';
-  css += { gray: '', family: '#stage div.frame{border-color:var(--fc)!important}', none: '#stage div.frame{border-color:transparent!important}',
-    light: '#stage div.frame{border-color:rgba(255,255,255,0.55)!important}',
-    thick: '#stage div.frame:not(.notch){border:2px solid var(--fc)!important}#stage .notch{border-color:var(--fc)!important;border-width:2px 0 0 2px!important}' }[g.outline] + '\n';
+  css += { gray: '', family: '.stg div.frame{border-color:var(--fc)!important}', none: '.stg div.frame{border-color:transparent!important}',
+    light: '.stg div.frame{border-color:rgba(255,255,255,0.55)!important}',
+    thick: '.stg div.frame:not(.notch){border:2px solid var(--fc)!important}.stg .notch{border-color:var(--fc)!important;border-width:2px 0 0 2px!important}' }[g.outline] + '\n';
   // Window labels (the Hue, Persist and Hold labels are .dyn: beamLabels colours them from SCH_DYN).
-  var LB = '#stage .knob-label:not(.dyn)';
+  var LB = '.stg .knob-label:not(.dyn)';
   css += { dim: '', family: LB + '{color:var(--fc,#a6a4a8)!important}', bright: LB + '{color:#ebebeb!important}',
     familyDark: LB + '{color:color-mix(in srgb,var(--fc,#888) 45%,#000)!important}', black: LB + '{color:#161517!important}',
     ivory: LB + '{color:#efe6cf!important}', accent: LB + '{color:' + acc + '!important}' }[g.label] + '\n';
-  if (lightStage) css += '#stage .stage-label{color:' + hsl(g.sHue, g.sSat, 0.38) + '!important}#stage .bezel{background:' + hsl(215, 0.12, 0.15) + '!important}\n';
-  css += { ink: '', family: '#stage .knob-ptr{background:var(--fc,#ebebeb)!important}', accent: '#stage .knob-ptr{background:' + hsl(g.accentHue, 1, 0.8) + '!important;box-shadow:0 0 4px ' + hsl(g.accentHue, 1, 0.7) + '}',
-    red: '#stage .knob-ptr{background:#ff4a3d!important}', black: '#stage .knob-ptr{background:#141316!important}', amber: '#stage .knob-ptr{background:#ffb02e!important}' }[g.ptr] + '\n';
-  css += (g.cap === 'black' ? '' : '#stage .knob-cap{background:' + CAP_IMG[g.cap] + '!important}' + (g.cap === 'glass' ? '#stage .knob-cap{box-shadow:inset 0 0 0 1px rgba(255,255,255,0.3)!important}' : '')) + '\n';
+  if (lightStage) css += '.stg .stage-label{color:' + hsl(g.sHue, g.sSat, 0.38) + '!important}.stg .bezel{background:' + hsl(215, 0.12, 0.15) + '!important}\n';
+  css += { ink: '', family: '.stg .knob-ptr{background:var(--fc,#ebebeb)!important}', accent: '.stg .knob-ptr{background:' + hsl(g.accentHue, 1, 0.8) + '!important;box-shadow:0 0 4px ' + hsl(g.accentHue, 1, 0.7) + '}',
+    red: '.stg .knob-ptr{background:#ff4a3d!important}', black: '.stg .knob-ptr{background:#141316!important}', amber: '.stg .knob-ptr{background:#ffb02e!important}' }[g.ptr] + '\n';
+  css += (g.cap === 'black' ? '' : '.stg .knob-cap{background:' + CAP_IMG[g.cap] + '!important}' + (g.cap === 'glass' ? '.stg .knob-cap{box-shadow:inset 0 0 0 1px rgba(255,255,255,0.3)!important}' : '')) + '\n';
   css += {
-    knurled: '', smooth: '#stage .knob-skirt{background:#1b1a1d!important}',
-    none: '#stage .knob-skirt{background:transparent!important;box-shadow:none!important}#stage .knob-cap{inset:3%!important;box-shadow:0 0 0 1px #050505,0 5px 9px rgba(0,0,0,0.55),inset 0 1px 0 rgba(255,255,255,0.12)!important}',
-    ring: '#stage .knob-skirt{background:var(--fc,#888)!important}',
-    fluted: '#stage .knob-skirt{background:repeating-conic-gradient(#2c2b2f 0deg 11.25deg,#141316 11.25deg 22.5deg)!important}',
-    metal: '#stage .knob-skirt{background:conic-gradient(#d6d6da,#6d6d74 25%,#cfcfd4 50%,#66666d 75%,#d6d6da)!important}'
+    knurled: '', smooth: '.stg .knob-skirt{background:#1b1a1d!important}',
+    none: '.stg .knob-skirt{background:transparent!important;box-shadow:none!important}.stg .knob-cap{inset:3%!important;box-shadow:0 0 0 1px #050505,0 5px 9px rgba(0,0,0,0.55),inset 0 1px 0 rgba(255,255,255,0.12)!important}',
+    ring: '.stg .knob-skirt{background:var(--fc,#888)!important}',
+    fluted: '.stg .knob-skirt{background:repeating-conic-gradient(#2c2b2f 0deg 11.25deg,#141316 11.25deg 22.5deg)!important}',
+    metal: '.stg .knob-skirt{background:conic-gradient(#d6d6da,#6d6d74 25%,#cfcfd4 50%,#66666d 75%,#d6d6da)!important}'
   }[g.skirt];
   css += {
-    line: '', dot: '#stage .knob-ptr{width:6px!important;height:6px!important;margin-left:-3px!important;top:9%!important;border-radius:50%!important}',
-    needle: '#stage .knob-ptr{width:1.5px!important;margin-left:-0.75px!important;top:2%!important;height:48%!important}',
-    wedge: '#stage .knob-ptr{width:5px!important;margin-left:-2.5px!important;top:5%!important;height:30%!important;border-radius:2px!important}',
-    triangle: '#stage .knob-ptr{width:10px!important;height:11px!important;margin-left:-5px!important;top:6%!important;border-radius:0!important;clip-path:polygon(50% 0,100% 100%,0 100%)}',
-    notch: '#stage .knob-ptr{width:4px!important;margin-left:-2px!important;top:0!important;height:18%!important;border-radius:0!important}'
+    line: '', dot: '.stg .knob-ptr{width:6px!important;height:6px!important;margin-left:-3px!important;top:9%!important;border-radius:50%!important}',
+    needle: '.stg .knob-ptr{width:1.5px!important;margin-left:-0.75px!important;top:2%!important;height:48%!important}',
+    wedge: '.stg .knob-ptr{width:5px!important;margin-left:-2.5px!important;top:5%!important;height:30%!important;border-radius:2px!important}',
+    triangle: '.stg .knob-ptr{width:10px!important;height:11px!important;margin-left:-5px!important;top:6%!important;border-radius:0!important;clip-path:polygon(50% 0,100% 100%,0 100%)}',
+    notch: '.stg .knob-ptr{width:4px!important;margin-left:-2px!important;top:0!important;height:18%!important;border-radius:0!important}'
   }[g.pointer];
   css += {
-    ticks: '', faint: '#stage .knob-scale{opacity:0.4}', none: '#stage .knob-scale{display:none}',
-    arc: '#stage .knob-scale{background:conic-gradient(from -135deg,#8f8d92 0deg 270deg,transparent 270deg)!important}',
-    familyArc: '#stage .knob-scale{background:conic-gradient(from -135deg,var(--fc,#a6a4a8) 0deg 270deg,transparent 270deg)!important}',
-    glowArc: '#stage .knob-scale{background:conic-gradient(from -135deg,' + acc + ' 0deg 270deg,transparent 270deg)!important;filter:drop-shadow(0 0 3px ' + acc + ')}'
+    ticks: '', faint: '.stg .knob-scale{opacity:0.4}', none: '.stg .knob-scale{display:none}',
+    arc: '.stg .knob-scale{background:conic-gradient(from -135deg,#8f8d92 0deg 270deg,transparent 270deg)!important}',
+    familyArc: '.stg .knob-scale{background:conic-gradient(from -135deg,var(--fc,#a6a4a8) 0deg 270deg,transparent 270deg)!important}',
+    glowArc: '.stg .knob-scale{background:conic-gradient(from -135deg,' + acc + ' 0deg 270deg,transparent 270deg)!important;filter:drop-shadow(0 0 3px ' + acc + ')}'
   }[g.scale];
-  if (g.font !== 'barlowSC') css += '#stage{font-family:"' + FONTS[g.font][0] + '","Barlow Semi Condensed","Segoe UI",sans-serif!important}';
-  if (g.weight !== '700') css += '#stage .knob-label{font-weight:' + g.weight + '!important}';
-  if (g.textCase === 'title') css += '#stage .knob-label,#stage .tab{text-transform:none!important}';
-  if (g.tracking !== 'normal') css += '#stage .knob-label{letter-spacing:' + TRACK[g.tracking] + 'em!important}';
+  if (g.font !== 'barlowSC') css += '.stg,#tip{font-family:"' + FONTS[g.font][0] + '","Barlow Semi Condensed","Segoe UI",sans-serif!important}';
+  if (g.weight !== '700') css += '.stg .knob-label{font-weight:' + g.weight + '!important}';
+  if (g.textCase === 'title') css += '.stg .knob-label,.stg .tab{text-transform:none!important}';
+  if (g.tracking !== 'normal') css += '.stg .knob-label{letter-spacing:' + TRACK[g.tracking] + 'em!important}';
   return css;
 }
 // What beamLabels needs: whether the Oscilloscope window is light, and its label colour as RGB.
@@ -1071,50 +1099,264 @@ function loadFont(k) {
 }
 var SCH_STORE = 'l9loop.scheme.v1', schemeIdx = 0, schemeStyle = document.createElement('style');
 document.head.appendChild(schemeStyle);
-var SCH0 = { accent: P.accent, accentGlow: P.accentGlow, icon: ICON_GREEN, glow: ICON_GLOW, theme: '#242324' };
 function applyScheme(i) {
-  schemeIdx = (i + SCHEMES.length) % SCHEMES.length;
-  var sc = SCHEMES[schemeIdx], theme = SCH0.theme;
+  schemeIdx = clamp(i, 0, SCHEMES.length - 1);
+  var sc = SCHEMES[schemeIdx], g = resolveScheme(sc);
   try { localStorage.setItem(SCH_STORE, sc.id); } catch (e) { }
-  if (!sc.f) {
-    schemeStyle.textContent = '';
-    P.accent = SCH0.accent; P.accentGlow = SCH0.accentGlow; ICON_GREEN = SCH0.icon; ICON_GLOW = SCH0.glow;
-    SCH_DYN = { light: false, base: [166, 164, 168] };
-  } else {
-    var g = resolveScheme(sc);
-    loadFont(g.font);
-    schemeStyle.textContent = schemeCss(g);
-    P.accent = hsl(g.accentHue, g.accSat, 0.93); P.accentGlow = hsl(g.accentHue, g.accSat, 0.75, 0.8);
-    ICON_GREEN = hsl(g.glassHue, g.glassSat, 0.5); ICON_GLOW = hsl(g.glassHue, g.glassSat, 0.5, 0.7);
-    SCH_DYN = dynFor(g); theme = hsl(g.sHue, g.sSat, g.sLight);
-  }
+  loadFont(g.font);
+  schemeStyle.textContent = schemeCss(g);
+  P.accent = hsl(g.accentHue, g.accSat, 0.93); P.accentGlow = hsl(g.accentHue, g.accSat, 0.75, 0.8);
+  ICON_GREEN = hsl(g.glassHue, g.glassSat, 0.5); ICON_GLOW = hsl(g.glassHue, g.glassSat, 0.5, 0.7);
+  SCH_DYN = dynFor(g);
   LED.on = P.accent; OUT_ICON = outIcon();
-  var m = document.querySelector('meta[name="theme-color"]'); if (m) m.setAttribute('content', theme);
+  var m = document.querySelector('meta[name="theme-color"]'); if (m) m.setAttribute('content', hsl(g.sHue, g.sSat, g.sLight));
 }
 function storedScheme() {
   var id = null;
   try { id = localStorage.getItem(SCH_STORE); } catch (e) { }
   for (var i = 0; i < SCHEMES.length; i++) if (SCHEMES[i].id === id) return i;
-  return 1;   // first visit: Night, the feedback app's standard look
+  return 0;   // Night, the feedback app's standard look (also for looks stored before Night / Day only)
 }
-function cycleScheme(dir) {
-  applyScheme(schemeIdx + dir);
+// Switch scheme and rebuild in place (a phone layout keeps its scroll position).
+function setScheme(i) {
+  if (i === schemeIdx) return;
+  var top = scroller.scrollTop;
+  applyScheme(i);
   build(layoutKey, layoutH); scaleToWindow(); sizeDisplays();
+  scroller.scrollTop = top;
 }
-function schemeText() { var sc = SCHEMES[schemeIdx]; return sc.f ? schemeIdx + '/' + (SCHEMES.length - 1) + '  ' + sc.name : sc.name; }
-// Scheme window: ◀ and ▶ keys either side of a glass that names the scheme (tap it for the next).
+// Night | Day radio keys across (x .. x + w); kh tall, fs text.
+function schemeKeys(x, y, w, kh, fs) {
+  var g = 8, kw = (w - g) / 2;
+  ui.scheme = radio([[x, y], [x + kw + g, y]], kw, kh, SCHEMES.map(function (s) { return s.name; }), setScheme, fs);
+  ui.scheme.keys.forEach(function (k, i) { k.b.setAttribute('aria-label', SCHEMES[i].name + ' scheme'); });
+  ui.scheme.select(schemeIdx);
+}
+// Scheme window (tablet / desktop layouts): Night | Day.
 function buildScheme(m) {
-  var x = m[0], y = m[1], w = m[2], h = m[3], kw = 36, kh = 28, gp = 6, ky = y + Math.round((h - kh) / 2) + 2, dw = w - 32 - 2 * kw - 2 * gp;
+  var x = m[0], y = m[1], w = m[2], h = m[3], kh = 28, iw = Math.min(w - 32, 176);
   sec(x, y, w, h, 'Scheme', { fam: 'scheme' });
-  key(x + 16, ky, kw, kh, '', null, { glyph: '◀︎', fs: 11, aria: 'Previous scheme', onClick: function () { cycleScheme(-1); } });
-  key(x + w - 16 - kw, ky, kw, kh, '', null, { glyph: '▶︎', fs: 11, aria: 'Next scheme', onClick: function () { cycleScheme(1); } });
-  var d = el('button', at(x + 16 + kw + gp, ky, dw, kh) + ';box-sizing:border-box;padding:0 8px;border:none;border-radius:4px;background:#050406;' +
-    'box-shadow:inset 0 2px 5px rgba(0,0,0,0.9),0 1px 0 rgba(255,255,255,0.06);font-family:inherit;font-size:11px;font-weight:700;letter-spacing:0.1em;' +
-    'text-transform:uppercase;line-height:' + kh + 'px;color:' + P.accent + ';text-shadow:0 0 6px ' + P.accentGlow + ';white-space:pre;overflow:hidden;text-overflow:ellipsis;cursor:pointer', panel, schemeText());
-  d.type = 'button'; d.title = 'Next scheme';
-  d.setAttribute('aria-label', 'Scheme: ' + SCHEMES[schemeIdx].name + '. Click for the next.');
-  d.addEventListener('click', function () { cycleScheme(1); });
-  ui.schemeName = d;
+  schemeKeys(x + (w - iw) / 2, y + Math.round((h - kh) / 2) + 2, iw, kh, 10);
+}
+
+// ---------------------------------------------------------------- phone layouts
+// Portrait windows up to 600 px wide (or #phone). The panel is 390 wide and shown at the window's width (1:1 on a 390 px
+// phone), so every size below is close to its on-screen size in CSS px. Everything is laid out in one column that scrolls
+// (touch-action: the knobs turn, everything else scrolls); the pinned variations keep the scope (with Play, Stop and the
+// display keys) fixed above the scrolling controls. Every variation keeps the same minimums: knob touch ring 46 px or more
+// (the knob itself 26+), labels 10.5 px or more, keys 36 px tall or more, FM rings 40 px to touch.
+// Order: View (scheme + variation), Oscilloscope (or Beam when pinned), Source & Display, Osc 1-6, Effects, Spectrum.
+// Signal paths are not drawn (no room for the corridors); the FM links between stacked oscillators are.
+var PHONE_W = 390;
+// ks knob, lab knob label, kh key height, kfs key text, tfs nameplate text, pad window padding, gap between windows (nameplate
+// included), row gap between rows in a window, plh / pfs preset row height / text, glass wave screen height, pres preset rows,
+// fm FM ring touch size.
+var DENS = {
+  roomy:   { ks: 34, lab: 12.5, kh: 44, kfs: 12.5, tfs: 12.5, pad: 14, gap: 28, row: 12, plh: 32, pfs: 14, glass: 46, pres: 7, fm: 44 },
+  comfy:   { ks: 30, lab: 11.5, kh: 40, kfs: 11.5, tfs: 11.5, pad: 12, gap: 25, row: 9, plh: 30, pfs: 13, glass: 40, pres: 6, fm: 42 },
+  compact: { ks: 26, lab: 10.5, kh: 36, kfs: 10.5, tfs: 10.5, pad: 10, gap: 22, row: 6, plh: 28, pfs: 12.5, glass: 34, pres: 5, fm: 40 }
+};
+var PHONE_LAYOUTS = [
+  { id: 'roomy', name: 'Roomy', d: 'roomy' },
+  { id: 'comfy', name: 'Comfy', d: 'comfy' },
+  { id: 'compact', name: 'Compact', d: 'compact' },
+  { id: 'pin', name: 'Pinned', d: 'comfy', pin: true },
+  { id: 'pinc', name: 'Pin compact', d: 'compact', pin: true },
+  { id: 'pairs', name: 'Pin pairs', d: 'compact', pin: true, pairs: true }
+];
+var PH_STORE = 'l9loop.phone.v1', phoneIdx = 0;
+try { var phId = localStorage.getItem(PH_STORE); PHONE_LAYOUTS.forEach(function (l, i) { if (l.id === phId) phoneIdx = i; }); } catch (e) { }
+function setPhone(i) {
+  phoneIdx = (i + PHONE_LAYOUTS.length) % PHONE_LAYOUTS.length;
+  try { localStorage.setItem(PH_STORE, PHONE_LAYOUTS[phoneIdx].id); } catch (e) { }
+  build('phone', 0); scaleToWindow(); sizeDisplays(); scroller.scrollTop = 0;
+}
+var labW = function (t, fs) { return t.length * fs * 0.62; };   // knob label width estimate (condensed caps, 0.1em spacing)
+function buildPhone() {
+  var L = PHONE_LAYOUTS[phoneIdx], D = DENS[L.d], W = PHONE_W, M = 8, iw = W - 2 * M, cw = iw - 2 * D.pad;
+  var G = { lk: 'phone', W: W, H: 0, PH: 0, phone: true, ringSeg: [] };
+  GEO = G; ui = { syncers: [] };
+  hideTip(); mainPanel.innerHTML = ''; pinPanel.innerHTML = ''; panel = mainPanel;
+  var th = Math.round(D.tfs * 1.4) + 4, ti = th / 2 + D.pad;   // nameplate height; content starts ti below a window's top
+  var S = D.ks + 20, KC = S + 5 + Math.ceil(D.lab * 1.3), LH = Math.ceil(D.lab * 1.3) + 10;   // knob cell, small-label row (6 above, 4 below)
+  var y = th / 2 + 6;
+  var W0 = { tfs: D.tfs };
+  var opt = function (o) { return Object.assign({}, W0, o); };
+  // Even spread of n centres across (x0, x0 + w).
+  var spread = function (x0, w, n) { var r = []; for (var i = 0; i < n; i++) r.push(x0 + w * (i + 0.5) / n); return r; };
+  // How many knob columns fit across w for these labels (rows balanced).
+  var cols = function (n, labels, w) {
+    var cell = Math.max(S, Math.max.apply(null, labels.map(function (t) { return labW(t, D.lab); }))) + 10, c = Math.max(1, Math.min(n, Math.floor(w / cell)));
+    return Math.ceil(n / Math.ceil(n / c));
+  };
+  // Knobs on a grid inside (x0, w) from y0: items [label, obj, key, pd, opts]; returns the knobs and the height used.
+  var knobGrid = function (x0, w, y0, items, nc) {
+    var rows = Math.ceil(items.length / nc), ks = [];
+    items.forEach(function (it, i) {
+      var r = Math.floor(i / nc), inRow = Math.min(nc, items.length - r * nc), xs = spread(x0, w, inRow);
+      ks.push(knob(xs[i - r * nc], y0 + r * (KC + D.row) + S / 2, D.ks, it[0], it[1], it[2], it[3], Object.assign({ fs: D.lab }, it[4] || {})));
+    });
+    return { k: ks, h: rows * KC + (rows - 1) * D.row };
+  };
+  var keyRow = function (x0, w, y0, n, g) { var kw = (w - (n - 1) * g) / n, r = []; for (var i = 0; i < n; i++) r.push(x0 + i * (kw + g)); return { xs: r, w: kw }; };
+  var Sg = function () { return state; };
+
+  // --- pinned header: the scope with Play, Stop, Output, Grid and Glow in a column to its right
+  var beamKeys = function (xs, ys, w, h) {   // [play, stop, out, grid, glow] positions (null to skip)
+    if (xs[0] != null) {
+      ui.playK = key(xs[0], ys[0], w, h, '', 'off', { tint: 'red', glyph: '▶︎', fs: D.kfs + 3, aria: 'Play', onClick: play });
+      ui.stopK = key(xs[1], ys[1], w, h, '', 'off', { tint: 'red', glyph: '■', fs: D.kfs + 2, aria: 'Stop', onClick: stop });
+    }
+    ui.out = key(xs[2], ys[2], w, h, '', null, { onClick: function () { state.mode = state.mode === 'xy' ? 'waveform' : 'xy'; syncOut(); } });
+    ui.grid = key(xs[3], ys[3], w, h, 'Grid', 'on', { fs: D.kfs, onClick: function () { state.grid = !state.grid; ui.grid.set(state.grid ? 'on' : 'off'); } });
+    ui.glow = key(xs[4], ys[4], w, h, 'Glow', 'on', { fs: D.kfs, onClick: function () { state.glow = !state.glow; ui.glow.set(state.glow ? 'on' : 'off'); } });
+  };
+  if (L.pin) {
+    panel = pinPanel;
+    var pcw = 76, pg = 10, sz = cw - pg - pcw, ph = ti + sz + D.pad, py = th / 2 + 6;
+    sec(M, py, iw, ph, 'Oscilloscope', opt({ fam: 'scope' }));
+    scopeScreen(M + D.pad, py + ti, sz);
+    var kx = M + D.pad + sz + pg, kk = Math.min(56, (sz - 4 * 8) / 5), ky = [0, 1, 2, 3, 4].map(function (i) { return py + ti + i * (sz - kk) / 4; });
+    beamKeys([kx, kx, kx, kx, kx], ky, pcw, kk);
+    G.PH = py + ph + 8;
+    pinStage.style.width = W + 'px'; pinStage.style.height = G.PH + 'px';
+    panel = mainPanel;
+  }
+  var DK = [['Width', 'lineWidth'], ['Persist', 'persistence'], ['Hold', 'hold'], ['Gain', 'gain'], ['Hue', 'hue'], ['Hue Spd', 'hueSpeed']];
+  var beamKnobs = function (y0) {
+    ui.hueLabs = []; ui.trailLabs = [];
+    var nc = cols(6, DK.map(function (d) { return d[0]; }), cw);
+    var r = knobGrid(M + D.pad, cw, y0, DK.map(function (d) { return [d[0], Sg, d[1], PD[d[1]]]; }), nc);
+    r.k.forEach(function (n, k) {
+      if (k === 1 || k === 2) ui.trailLabs.push({ lab: n.lab, key: DK[k][1] }); else if (k > 3) ui.hueLabs.push(n.lab);
+      if (k === 1 || k === 2 || k > 3) n.lab.classList.add('dyn');
+    });
+    beamLabCol = ''; trailLabKey = '';
+    return r.h;
+  };
+  var beamRows = Math.ceil(6 / cols(6, DK.map(function (d) { return d[0]; }), cw)), beamH = beamRows * KC + (beamRows - 1) * D.row;
+
+  // --- View: Night | Day, then the variation (◀ name ▶)
+  var vh = ti + D.kh + D.pad;
+  sec(M, y, iw, vh, 'View', opt({ fam: 'scheme' }));
+  var sw = Math.round(cw * 0.38), ar = D.kh, vx = M + D.pad + sw + 12, nw = cw - sw - 12 - 2 * ar - 12;
+  schemeKeys(M + D.pad, y + ti, sw, D.kh, D.kfs);
+  key(vx, y + ti, ar, D.kh, '', null, { glyph: '◀︎', fs: D.kfs, aria: 'Previous layout', onClick: function () { setPhone(phoneIdx - 1); } });
+  key(vx + nw + 2 * ar + 12 - ar, y + ti, ar, D.kh, '', null, { glyph: '▶︎', fs: D.kfs, aria: 'Next layout', onClick: function () { setPhone(phoneIdx + 1); } });
+  var nm = el('button', at(vx + ar + 6, y + ti, nw, D.kh) + ';box-sizing:border-box;padding:0 6px;border:none;border-radius:4px;background:#050406;' +
+    'box-shadow:inset 0 2px 5px rgba(0,0,0,0.9),0 1px 0 rgba(255,255,255,0.06);font-family:inherit;font-size:' + D.kfs + 'px;font-weight:700;letter-spacing:0.06em;' +
+    'text-transform:uppercase;line-height:' + D.kh + 'px;color:' + P.accent + ';text-shadow:0 0 6px ' + P.accentGlow + ';white-space:pre;overflow:hidden;text-overflow:ellipsis;cursor:pointer',
+    panel, (phoneIdx + 1) + ' ' + L.name);
+  nm.type = 'button'; nm.setAttribute('aria-label', 'Layout ' + (phoneIdx + 1) + ' of ' + PHONE_LAYOUTS.length + ': ' + L.name + '. Click for the next.');
+  nm.addEventListener('click', function () { setPhone(phoneIdx + 1); });
+  y += vh + D.gap;
+
+  // --- Oscilloscope in the scroll (screen, Output / Grid / Glow, beam knobs), or Beam when the scope is pinned
+  if (!L.pin) {
+    var oh = ti + cw + D.row + D.kh + D.row + beamH + D.pad;
+    sec(M, y, iw, oh, 'Oscilloscope', opt({ fam: 'scope' }));
+    scopeScreen(M + D.pad, y + ti, cw);
+    var kr = keyRow(M + D.pad, cw, y + ti + cw + D.row, 3, 10), yk = y + ti + cw + D.row;
+    beamKeys([null, null, kr.xs[0], kr.xs[1], kr.xs[2]], [0, 0, yk, yk, yk], kr.w, D.kh);
+    beamKnobs(yk + D.kh + D.row);
+    y += oh + D.gap;
+  } else {
+    var bh = ti + beamH + D.pad;
+    sec(M, y, iw, bh, 'Beam', opt({ fam: 'scope' }));
+    beamKnobs(y + ti);
+    y += bh + D.gap;
+  }
+
+  // --- Source & Display: transport, input, presets
+  var sdh = ti + D.kh + D.row + LH + D.kh + D.row + (10 + D.pres * D.plh) + D.row + D.kh + D.pad, yy = y + ti;
+  sec(M, y, iw, sdh, 'Source & Display', opt({ fam: 'sd' }));
+  var tr = keyRow(M + D.pad, cw, yy, L.pin ? 2 : 4, 8), ti0 = L.pin ? 0 : 2;
+  if (!L.pin) {
+    ui.playK = key(tr.xs[0], yy, tr.w, D.kh, '', 'off', { tint: 'red', glyph: '▶︎', fs: D.kfs + 3, aria: 'Play', onClick: play });
+    ui.stopK = key(tr.xs[1], yy, tr.w, D.kh, '', 'off', { tint: 'red', glyph: '■', fs: D.kfs + 2, aria: 'Stop', onClick: stop });
+  }
+  ui.mute = key(tr.xs[ti0], yy, tr.w, D.kh, 'Mute', 'off', { tint: 'blue', fs: D.kfs, aria: 'Mute audio', onClick: function () { state.mute = !state.mute; ui.mute.set(state.mute ? 'rec' : 'off'); setGain(); } });
+  ui.freeze = key(tr.xs[ti0 + 1], yy, tr.w, D.kh, 'Freeze', 'off', { tint: 'blue', fs: D.kfs, aria: 'Freeze display', onClick: function () { state.freeze = !state.freeze; ui.freeze.set(state.freeze ? 'on' : 'off'); } });
+  yy += D.kh + D.row;
+  famLabel(cl(M + iw / 2, yy + 6, cw, 'Input', PRINT(D.lab)));
+  yy += LH;
+  var ir = keyRow(M + D.pad, cw, yy, 4, 8);   // Tone, Mic, Line, File (setSource order), left to right
+  ui.src = radio(ir.xs.map(function (x) { return [x, yy]; }), ir.w, D.kh, ['Tone', 'Mic', 'Line', 'File'], function (i) { setSource(['tone', 'mic', 'line', 'file'][i]); }, D.kfs);
+  yy += D.kh + D.row;
+  presetList(M + D.pad, yy, cw, D.pres, D.plh, D.pfs);
+  yy += 10 + D.pres * D.plh + D.row;
+  presetNav(M + D.pad, yy, cw, D.kh, D.kfs);
+  y += sdh + D.gap;
+
+  // --- Oscillators: stacked full width (glass, then four knobs in a row), or X | Y pairs (glass, then 2 x 2 knobs).
+  // An FM ring sits in the gap above each chord layer, linked to the windows above and below it.
+  ui.osc = []; ui.rings = [];
+  var rs = Math.max(18, Math.round(D.fm * 0.45)), fmGap = Math.max(D.gap, D.fm + 6);
+  var oscWin = function (i, x, yo, w, two) {
+    var main = i % 3 === 0, col = i < 3 ? P.X : P.Y, O = function () { return state.osc[i]; };
+    var h = ti + D.glass + D.row + (two ? 2 * KC + D.row : KC) + D.pad;
+    sec(x, yo, w, h, (main ? 'Osc ' + (i + 1) + '   ' + (i < 3 ? 'X-L' : 'Y-R') : 'Osc ' + (i + 1)),
+      opt(main ? { line: col, tab: col, fam: i < 3 ? 'x' : 'y', plain: true } : { line: col, tab: P.tabSub, tabInk: col, tabLine: col, fam: i < 3 ? 'x' : 'y', plain: true }));
+    var gw = w - 2 * D.pad, g = glass(x + D.pad, yo + ti, gw, D.glass, 'Oscillator ' + (i + 1));
+    g.g.style.cursor = 'pointer'; g.g.title = 'Tap: Off, Sine, Triangle, Sawtooth, Square';
+    g.g.addEventListener('click', function () { var o = state.osc[i]; o.wave = (o.wave + 1) % 5; drawWave(i); drawRoutes(); });
+    var items = main ? [['Gain', O, 'gain', PD.mgain], ['Pitch', O, 'freq', PD.freq], ['Phase', O, 'phase', PD.phase], ['Spin', O, 'speed', PD.speed]]
+                     : [['Gain', O, 'gain', PD.cgain], ['Detune', O, 'det', PD.det], ['Mult', O, 'mul', PD.mul], ['Div', O, 'div', PD.div]];
+    ui.osc[i] = { g: g, k: knobGrid(x + D.pad, gw, yo + ti + D.glass + D.row, items, two ? 2 : 4).k };
+    return h;
+  };
+  var ringAt = function (li, cx, yTop, yBot) {   // ring li in the gap from yTop (upper window bottom) to yBot (lower window top)
+    var cy = (yTop + yBot) / 2;
+    fmRing(cx, cy, li, D.fm, rs, D.lab, [cx - rs / 2 - 22, cy - D.lab * 0.65]);
+    G.ringSeg[li] = 'M' + cx + ' ' + yTop + 'V' + (cy - rs / 2) + 'M' + cx + ' ' + (cy + rs / 2) + 'V' + yBot;
+  };
+  if (!L.pairs) {
+    for (var i = 0; i < 6; i++) {
+      var h = oscWin(i, M, y, iw, false), li = RING_OSC.indexOf(i + 1);
+      if (li >= 0) { ringAt(li, M + iw - 64, y + h, y + h + fmGap); y += h + fmGap; } else y += h + D.gap;
+    }
+  } else {
+    var pw = (iw - 12) / 2;
+    for (var r = 0; r < 3; r++) {
+      var hL = oscWin(r, M, y, pw, true); oscWin(r + 3, M + pw + 12, y, pw, true);
+      if (r < 2) { ringAt(r, M + pw - 40, y + hL, y + hL + fmGap); ringAt(r + 2, M + 2 * pw + 12 - 40, y + hL, y + hL + fmGap); y += hL + fmGap; }
+      else y += hL + D.gap;
+    }
+  }
+
+  // --- Effects: response screen, the four stages with Bypass under each, then Master Time / Fast / Detune
+  var fg = D.glass + 8, eh = ti + fg + D.row + KC + 6 + D.kh + D.row + LH + KC + D.pad, ye = y + ti;
+  sec(M, y, iw, eh, 'Effects', opt({ fam: 'fx' }));
+  ui.fxScreen = glass(M + D.pad, ye, cw, fg, 'Filter and band-pass response');
+  ye += fg + D.row;
+  var Fx = function () { return state.fx; };
+  knobGrid(M + D.pad, cw, ye, FXDEF.map(function (d) { return [d[0], Fx, d[1], PD[d[1]], { after: drawFx }]; }), 4);
+  ui.byp = [];
+  var bx = spread(M + D.pad, cw, 4), bw = Math.min(cw / 4 - 8, 84);
+  FXDEF.forEach(function (d, k) {
+    ui.byp.push(key(bx[k] - bw / 2, ye + KC + 6, bw, D.kh, 'Bypass', 'on', { tint: 'blue', fs: D.kfs - 1, onClick: function () { state.fx.byp[d[2]] = !state.fx.byp[d[2]]; syncByp(); drawFx(); } }));
+  });
+  ye += KC + 6 + D.kh + D.row;
+  famLabel(cl(M + iw / 2, ye + 6, cw, 'Master', PRINT(D.lab)));
+  knobGrid(M + D.pad, cw, ye + LH, MASTERDEF.map(function (d) { return [d[0], Sg, d[1], PD[d[1]]]; }), 3);
+  y += eh + D.gap;
+
+  // --- Spectrum: L left of the centre line, R right, frequency rising up
+  var sph = Math.round(cw * 0.5), sh = ti + sph + D.pad;
+  sec(M, y, iw, sh, 'Spectrum', opt({ fam: 'spec' }));
+  ana = glass(M + D.pad, y + ti, cw, sph, 'Stereo spectrum analyser');
+  ana.cssW = cw; ana.cssH = sph;
+  ana.lv = [new Float32Array(400), new Float32Array(400)]; ana.pk = [new Float32Array(400), new Float32Array(400)];
+  y += sh + 16;
+
+  G.H = Math.ceil(y);
+  stage.style.width = W + 'px'; stage.style.height = G.H + 'px';
+  var NS = 'http://www.w3.org/2000/svg';
+  routeSvg = document.createElementNS(NS, 'svg');
+  routeSvg.setAttribute('width', String(W)); routeSvg.setAttribute('height', String(G.H)); routeSvg.setAttribute('aria-hidden', 'true');
+  routeSvg.style.cssText = 'position:absolute;left:0;top:0;overflow:visible;pointer-events:none';
+  panel.appendChild(routeSvg);
+  syncUI();
 }
 
 // ---------------------------------------------------------------- displays
@@ -1328,8 +1570,9 @@ function frame(t) {
 var layoutKey = null, layoutH = 0, rebuildT = 0;
 function wanted() {
   var h = location.hash, v = viewSize(), ww = v[0], wh = v[1];
-  var lk = h === '#portrait' ? 'port' : h === '#landscape' ? 'land' : (wh > ww ? 'port' : 'land');
-  var H = lk === 'land' ? 1080 : 1200;   // fixed 4:3 (1440 x 1080) or 3:4 (900 x 1200), letterboxed to the window
+  // Phones (portrait, 600 px wide or less) get the scrolling phone layouts; #phone forces one anywhere.
+  var lk = h === '#portrait' ? 'port' : h === '#landscape' ? 'land' : h === '#phone' ? 'phone' : (wh > ww ? (ww <= 600 ? 'phone' : 'port') : 'land');
+  var H = lk === 'land' ? 1080 : lk === 'port' ? 1200 : 0;   // fixed 4:3 (1440 x 1080) or 3:4 (900 x 1200), letterboxed; phone: its content
   return { lk: lk, H: H };
 }
 // Scope and analyser canvases match the pixels they cover on screen (panel scale x devicePixelRatio, at most 2x the panel
@@ -1349,9 +1592,25 @@ function viewSize() {
   return [window.innerWidth, window.innerHeight];
 }
 function scaleToWindow() {
-  var v = viewSize(), k = Math.min(v[0] / GEO.W, v[1] / GEO.H);
+  var v = viewSize(), k;
+  if (GEO.phone) {
+    // Phone: the 390-wide panel at the window's width, scrolling; a pinned scope sits in #pin above the scroller.
+    var vw = scroller.clientWidth || v[0];
+    k = vw / GEO.W;
+    stage.style.transform = 'scale(' + k + ')';
+    scroller.className = 'scroll';
+    spacer.style.width = vw + 'px'; spacer.style.height = Math.ceil(GEO.H * k) + 'px';
+    var ph = GEO.PH ? Math.round(GEO.PH * k) : 0;
+    pinBox.style.display = ph ? 'block' : 'none'; pinBox.style.width = vw + 'px'; pinBox.style.height = ph + 'px';
+    pinStage.style.transform = 'scale(' + k + ')';
+    scroller.style.top = ph + 'px';
+  } else {
+    k = Math.min(v[0] / GEO.W, v[1] / GEO.H);
+    scroller.className = ''; scroller.style.top = '0'; scroller.scrollTop = 0; pinBox.style.display = 'none';
+    spacer.style.width = v[0] + 'px'; spacer.style.height = v[1] + 'px';
+    stage.style.transform = 'translate(' + ((v[0] - GEO.W * k) / 2) + 'px,' + ((v[1] - GEO.H * k) / 2) + 'px) scale(' + k + ')';
+  }
   stage.dataset.scale = String(k);
-  stage.style.transform = 'translate(' + ((v[0] - GEO.W * k) / 2) + 'px,' + ((v[1] - GEO.H * k) / 2) + 'px) scale(' + k + ')';
 }
 function fit() {
   var w = wanted();
