@@ -464,10 +464,12 @@ function knob(x, y, size, label, obj, key, d, o) {
 var LED = { on: P.accent, sel: P.select, rec: P.rec, off: P.off, byp: '#4a86e8' };
 // Rubber key. led: on / sel / rec / off / byp / null. o: glyph, below, fs, onClick, aria, ledW.
 // o.tint ('red' | 'blue'): no LED; the whole key is bright in that colour when its state is on (not 'off'), dull when off.
+// KEY_TEXT_LED (phone layouts): no indicator light; the label is light grey, white when the key is on.
+var KEY_TEXT_LED = false;
 function key(x, y, w, h, label, led, o) {
   o = o || {};
-  var tint = o.tint ? TINT[o.tint] : null, init = led;
-  if (tint) led = null;
+  var tint = o.tint ? TINT[o.tint] : null, init = led, tl = !tint && (o.textLed != null ? o.textLed : KEY_TEXT_LED) && led != null;
+  if (tint || tl) led = null;
   var wrap = el('div', at(x, y, w) + ';display:flex;flex-direction:column;align-items:center');
   var b = el('button', 'position:relative;flex:none;box-sizing:border-box;width:' + w + 'px;height:' + h + 'px;padding:' + (led != null ? (o.small ? '3px' : '6px') : '0') + ' 0 0;border:none;border-radius:' + (o.small ? 4 : 5) + 'px;' +
     'background:linear-gradient(to bottom,#49474d,#363439 55%,#2d2c30);box-shadow:0 2px 0 #0f0e10,0 4px 7px rgba(0,0,0,0.5),inset 0 1px 0 rgba(255,255,255,0.09);' +
@@ -491,7 +493,13 @@ function key(x, y, w, h, label, led, o) {
       ledEl.style.display = ''; ledEl.style.background = LED[s]; ledEl.style.boxShadow = s === 'off' ? 'none' : '0 0 7px ' + LED[s];
     }
   };
-  k.set(tint ? init : led);
+  if (tl) k.set = function (s) {
+    k.state = s; ledEl.style.display = 'none';
+    var on = s != null && s !== 'off';
+    b.style.color = on ? '#ffffff' : '#a6a4a8'; b.style.textShadow = on ? '0 0 6px rgba(255,255,255,0.55)' : 'none';
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  };
+  k.set(tint || tl ? init : led);
   b.addEventListener('pointerdown', function () { b.style.transform = 'translateY(1px)'; });
   ['pointerup', 'pointerleave'].forEach(function (ev) { b.addEventListener(ev, function () { b.style.transform = ''; }); });
   if (o.onClick) b.addEventListener('click', o.onClick);
@@ -636,6 +644,7 @@ function scopeScreen(x, y, bs, rim) {
 }
 function build(lk, H) {
   if (lk === 'phone') { buildPhone(H); return; }
+  KEY_TEXT_LED = false; FM_STYLE = null;
   var G = geometry(lk, H);
   GEO = G; ui = { syncers: [] };
   hideTip(); panel.innerHTML = '';
@@ -694,6 +703,8 @@ function buildOscillators(G) {
   ui.rings = [];
   G.rings.forEach(function (rp, li) { fmRing(rp[0], rp[1], li, 28, 16, 8, [rp[0], rp[1] + 15]); });
 }
+// FM_STYLE (phone layouts): { on, glow, off } ring colours; null for the accent colours.
+var FM_STYLE = null;
 // FM ring li centred on (cx, cy): a hit x hit button around an rs ring, its 'FM' label (fs) centred at lab.
 function fmRing(cx, cy, li, hit, rs, fs, lab) {
   var oi = RING_OSC[li];
@@ -701,12 +712,12 @@ function fmRing(cx, cy, li, hit, rs, fs, lab) {
   b.type = 'button';
   var ring = el('span', 'width:' + rs + 'px;height:' + rs + 'px;box-sizing:border-box;border-radius:50%;border:2px solid ' + P.accent, b);
   if (lab) cl(lab[0], lab[1], 30, 'FM', PRINT(fs)).className = 'stage-label';
-  var dot = Math.round(rs * 0.19);
+  var dot = Math.round(rs * 0.19), F = FM_STYLE;
   var set = function () {
-    var on = state.osc[oi].fm;
-    ring.style.borderColor = on ? P.accent : '#4c5566';
-    ring.style.background = on ? 'radial-gradient(circle,' + P.accent + ' 0 ' + dot + 'px,transparent ' + (dot + 0.5) + 'px)' : 'none';
-    ring.style.boxShadow = on ? '0 0 7px ' + P.accentGlow : 'none';
+    var on = state.osc[oi].fm, cOn = F ? F.on : P.accent;
+    ring.style.borderColor = on ? cOn : F ? F.off : '#4c5566';
+    ring.style.background = on ? 'radial-gradient(circle,' + cOn + ' 0 ' + dot + 'px,transparent ' + (dot + 0.5) + 'px)' : 'none';
+    ring.style.boxShadow = on ? '0 0 7px ' + (F ? F.glow : P.accentGlow) : 'none';
     b.setAttribute('aria-label', 'FM: oscillator ' + (oi + 1) + ' modulates oscillator ' + oi + (on ? ' (on)' : ' (off)'));
     b.setAttribute('aria-pressed', on ? 'true' : 'false');
     ui.osc[oi].k[0].lab.textContent = on ? 'Depth' : 'Gain';
@@ -925,6 +936,11 @@ function drawWave(i) {
   g.g.setAttribute('aria-label', 'Oscillator ' + (i + 1) + ': ' + WAVES[w] + '. Click to change.');
 }
 function refreshTransport() {
+  if (ui.ps) {   // phone: one key, ▶ while stopped, ■ (lit) while playing
+    ui.ps.set(A.running ? 'on' : 'off'); ui.ps.txt.textContent = A.running ? '■' : '▶\uFE0E';
+    ui.ps.b.setAttribute('aria-label', A.running ? 'Stop' : 'Play');
+    return;
+  }
   if (!ui.playK) return;
   ui.playK.set(A.running ? 'on' : 'off'); ui.stopK.set(A.running ? 'off' : 'on');
 }
@@ -1090,6 +1106,7 @@ function loadFont(k) {
   l.rel = 'stylesheet'; l.href = 'https://fonts.googleapis.com/css2?family=' + FONTS[k][0].replace(/ /g, '+') + ':wght@' + FONTS[k][1] + '&display=swap';
   document.head.appendChild(l); fontLinks[k] = l;
 }
+var SCH_LIGHT = false;   // the scheme's background is light (Day)
 var SCH_STORE = 'l9loop.scheme.v1', schemeIdx = 0, schemeStyle = document.createElement('style');
 document.head.appendChild(schemeStyle);
 function applyScheme(i) {
@@ -1100,7 +1117,7 @@ function applyScheme(i) {
   schemeStyle.textContent = schemeCss(g);
   P.accent = hsl(g.accentHue, g.accSat, 0.93); P.accentGlow = hsl(g.accentHue, g.accSat, 0.75, 0.8);
   ICON_GREEN = hsl(g.glassHue, g.glassSat, 0.5); ICON_GLOW = hsl(g.glassHue, g.glassSat, 0.5, 0.7);
-  SCH_DYN = dynFor(g);
+  SCH_DYN = dynFor(g); SCH_LIGHT = g.sLight >= 0.5;
   LED.on = P.accent; OUT_ICON = outIcon();
   var m = document.querySelector('meta[name="theme-color"]'); if (m) m.setAttribute('content', hsl(g.sHue, g.sSat, g.sLight));
 }
@@ -1136,11 +1153,14 @@ function buildScheme(m) {
 // the windows (rows and columns of windows holding blocks of controls); fitPhone finds the largest knob size at which it
 // fits the panel's width and height, and every other size (labels, keys, nameplates, padding, gaps) follows from the
 // knob size (phoneSizes). Height left over is spread evenly between the windows.
-// Layout (Columns, 2026-10-17): Spectrum | Oscilloscope; Source & Display | Effects; then the X oscillators (1-3) and
-// the Y oscillators (4-6) as two columns with a corridor between them for the signal paths: each oscillator drops into
-// its channel's lane (L / X red, R / Y cyan), the lanes rise into Effects, Effects feeds the Oscilloscope, the Oscilloscope
-// the Spectrum, and Source & Display (Mic, Line, File) feeds Effects. FM rings sit between stacked oscillators on the
-// corridor side; the Y windows mirror the X ones (nameplates on the outer side). The preset list opens over the Spectrum (Presets key); an oscillator's pitch readout opens a keypad.
+// Layout (Columns, 2026-10-17): on the left Spectrum over Source & Display, on the right the Oscilloscope (screen and
+// a narrow column of beam controls) over Effects; then the X oscillators (1-3) and the Y oscillators (4-6) as two
+// columns with a corridor between them for the signal paths: each oscillator drops into its channel's lane (L / X red,
+// R / Y cyan), the lanes rise into Effects, Effects feeds the Oscilloscope, the Oscilloscope the Spectrum, and Source &
+// Display (Mic, Line, File) feeds Effects. The Y windows mirror the X ones; FM rings sit between stacked oscillators on
+// the corridor side, red when on. Keys show their state by their label (light grey, white when on), not a light.
+// The preset list opens over the Spectrum (Presets key); an oscillator's pitch readout opens a keypad, the Time readout a
+// large drag pad.
 var PHONE_W = 390, PM = 4, RB = 6;   // panel width, outer margin, L / R line spacing
 function phoneSizes(s, sp) {
   var tm = Math.max(4, Math.round(s * 0.28)), S = s + 2 * tm, fs = clamp(Math.round(s * 0.9) / 2, 6.5, 13);
@@ -1183,9 +1203,10 @@ var PL = {
     };
   },
   row: function (kids, wts, g) {
-    var widths = function (w, Z) {
+    var widths = function (w, Z) {   // weight 0: the child's minimum width; the rest shared by weight
       var t = w - gapOf(g, Z, true) * (kids.length - 1), sum = wts.reduce(function (a, b) { return a + b; }, 0);
-      return wts.map(function (v) { return t * v / sum; });
+      var fixed = kids.map(function (k, i) { return wts[i] ? 0 : Math.ceil(k.m(w, Z).mw); }), fx = fixed.reduce(function (a, b) { return a + b; }, 0);
+      return wts.map(function (v, i) { return v ? (t - fx) * v / sum : fixed[i]; });
     };
     return {
       m: function (w, Z) {
@@ -1255,7 +1276,7 @@ var PL = {
     return { m: function (w, Z) { return { h: Math.round(Z.fs * hf), mw: minW || 30, f: f }; }, d: function (x, y, w, h, Z) { mk(x, y, w, h, Z); } };
   },
   scope: function () {
-    return { m: function (w) { return { h: w, mw: 90, f: 0 }; },
+    return { m: function (w) { return { h: w, mw: 90, f: 1 }; },
       d: function (x, y, w, h) { var a = Math.min(w, h); scopeScreen(x + (w - a) / 2, y + (h - a) / 2, a, Math.max(4, Math.round(a * 0.03))); } };
   }
 };
@@ -1284,42 +1305,41 @@ function phBeamKeys() {
     }
   };
 }
-function phScope(sw) {
-  return PL.win('Oscilloscope', 'scope', PL.row([PL.scope(), PL.col([phBeamKeys(), phBeamKnobs(2)], 'in')], [sw, 1 - sw], 'pad'), { id: 'scope' });
+function phScope() {   // the screen, and a narrow column: Output with Grid / Glow, then the six beam knobs stacked
+  return PL.win('Oscilloscope', 'scope', PL.row([PL.scope(), PL.col([phBeamKeys(), phBeamKnobs(1)], 'in')], [1, 0], 'pad'), { id: 'scope' });
 }
 function phSpec() {
-  return PL.win('Spectrum', 'spec', PL.fill(4, 0, function (x, y, w, h) {
+  return PL.win('Spectrum', 'spec', PL.fill(4, 1, function (x, y, w, h) {
     ana = glass(x, y, w, h, 'Stereo spectrum analyser'); ana.cssW = w; ana.cssH = h;
     ana.lv = [new Float32Array(400), new Float32Array(400)]; ana.pk = [new Float32Array(400), new Float32Array(400)];
     GEO.specIn = [x, y, w, h];
   }), { id: 'spec' });
 }
-function phView() {   // Night | Day
-  return { m: function (w, Z) { return { h: Z.kh, mw: 2 * (labW('Night', Z.fs) + 8) + 4, f: 0 }; },
-    d: function (x, y, w, h, Z) { schemeKeys(x, y + (h - Z.kh) / 2, w, Z.kh, Z.fs, Z.small); } };
-}
-function phTransport() {
-  return PL.keys(['Play', 'Stop', 'Mute', 'Freeze'], 4, function (i, x, y, w, h, Z) {
-    if (i === 0) ui.playK = key(x, y, w, h, '', 'off', { tint: 'red', glyph: '▶︎', fs: Z.fs + 2, small: Z.small, aria: 'Play', onClick: play });
-    if (i === 1) ui.stopK = key(x, y, w, h, '', 'off', { tint: 'red', glyph: '■', fs: Z.fs + 1, small: Z.small, aria: 'Stop', onClick: stop });
-    if (i === 2) ui.mute = key(x, y, w, h, 'Mute', 'off', { tint: 'blue', fs: Z.fs, small: Z.small, aria: 'Mute audio', onClick: function () { state.mute = !state.mute; ui.mute.set(state.mute ? 'rec' : 'off'); setGain(); } });
-    if (i === 3) ui.freeze = key(x, y, w, h, 'Freeze', 'off', { tint: 'blue', fs: Z.fs, small: Z.small, aria: 'Freeze display', onClick: function () { state.freeze = !state.freeze; ui.freeze.set(state.freeze ? 'on' : 'off'); } });
+function phTop() {   // Presets (opens the list over the Spectrum) | the Night / Day key, named for the scheme it switches to
+  return PL.keys(['Presets', 'Night'], 2, function (i, x, y, w, h, Z) {
+    if (i === 0) ui.presetsK = key(x, y, w, h, 'Presets', presetsOpen ? 'on' : 'off', { fs: Z.fs, small: Z.small, aria: 'Presets', onClick: function () { presetsOpen = !presetsOpen; phPresetPanel(); } });
+    if (i === 1) { var o = 1 - schemeIdx; ui.schemeK = key(x, y, w, h, SCHEMES[o].name, null, { fs: Z.fs, small: Z.small, aria: 'Switch to the ' + SCHEMES[o].name + ' scheme', onClick: function () { setScheme(o); } }); }
   });
 }
-function phInput() {   // Tone, Mic, Line, File (setSource order)
+function phPlay() {   // one key: ▶ while stopped, ■ while playing
+  return PL.keys(['Play'], 1, function (i, x, y, w, h, Z) {
+    ui.ps = key(x, y, w, h, '', 'off', { tint: 'red', glyph: '▶\uFE0E', fs: Z.fs + 3, small: Z.small, aria: 'Play', onClick: function () { if (A.running) stop(); else play(); } });
+  });
+}
+function phMuteFreeze() {
+  return PL.keys(['Mute', 'Freeze'], 2, function (i, x, y, w, h, Z) {
+    if (i === 0) ui.mute = key(x, y, w, h, 'Mute', 'off', { tint: 'blue', fs: Z.fs, small: Z.small, aria: 'Mute audio', onClick: function () { state.mute = !state.mute; ui.mute.set(state.mute ? 'rec' : 'off'); setGain(); } });
+    if (i === 1) ui.freeze = key(x, y, w, h, 'Freeze', 'off', { tint: 'blue', fs: Z.fs, small: Z.small, aria: 'Freeze display', onClick: function () { state.freeze = !state.freeze; ui.freeze.set(state.freeze ? 'on' : 'off'); } });
+  });
+}
+function phInput() {   // Tone, Mic, Line, File (setSource order), as a square: Tone Mic / Line File
   var pos = [];
-  return PL.keys(['Tone', 'Mic', 'Line', 'File'], 4, function (i, x, y, w, h, Z) {
+  return PL.keys(['Tone', 'Mic', 'Line', 'File'], 2, function (i, x, y, w, h, Z) {
     pos.push([x, y]);
     if (i === 3) { ui.src = radio(pos, w, h, ['Tone', 'Mic', 'Line', 'File'], function (j) { setSource(['tone', 'mic', 'line', 'file'][j]); }, Z.fs, Z.small); pos = []; }
   });
 }
-// Presets: one key that opens (and closes) the preset list over the Spectrum.
 var presetsOpen = false;
-function phPresetsKey() {
-  return PL.keys(['Presets'], 1, function (i, x, y, w, h, Z) {
-    ui.presetsK = key(x, y, w, h, 'Presets', presetsOpen ? 'on' : 'off', { fs: Z.fs, small: Z.small, aria: 'Presets', onClick: function () { presetsOpen = !presetsOpen; phPresetPanel(); } });
-  });
-}
 // The preset list over the Spectrum: Save and Rand keys on top, the list under them (tap a preset to load it).
 function phPresetPanel() {
   if (ui.presetsBox) { ui.presetsBox.remove(); ui.presetsBox = null; pdisp = null; }
@@ -1341,59 +1361,77 @@ function phPresetPanel() {
   panel = keep;
   drawPresets();
 }
-// Source & Display: Night | Day, transport, input, Presets.
-function phSD() { return PL.win('Source & Display', 'sd', PL.col([phView(), phTransport(), phInput(), phPresetsKey()], 'in'), { id: 'sd' }); }
-// Effects: the four stages with a small B (bypass) key under each, then Master Time / Fast / Detune.
+// Source & Display: Presets | Night / Day, Play / Stop, Mute | Freeze, Tone Mic / Line File.
+function phSD() { return PL.win('Source & Display', 'sd', PL.col([phTop(), phPlay(), phMuteFreeze(), phInput()], 'in'), { id: 'sd' }); }
+// Effects: one row of the four stages (a small B bypass key under each), Time and Detune. Time is Time x Fast as one knob
+// (0.0001x to 1000x, log); its label is a readout that opens the Time pad.
+var TIMEALL = { get t() { return state.masterTime * state.masterTimeFast; },
+  set t(x) { if (x <= 1) { state.masterTime = x; state.masterTimeFast = 1; } else { state.masterTime = 1; state.masterTimeFast = x; } } };
+var PD_TIME = { min: 0.0001, max: 1000, def: 1, step: 0, log: true, f: function (v) { return (v < 0.01 ? v.toFixed(4) : v < 10 ? v.toFixed(3) : v < 100 ? v.toFixed(1) : Math.round(v)) + '×'; } };
 function phFX() {
   var Fx = function () { return state.fx; }, under = function (i, cx, y, cw, Z) {
+    if (i > 3) return;
     if (i === 0) ui.byp = [];
     var d = FXDEF[i];
     ui.byp.push(key(cx - Z.bk / 2, y, Z.bk, Z.bk, 'B', 'on', { tint: 'blue', fs: Z.fs, small: true, aria: d[0] + ' bypass', onClick: function () { state.fx.byp[d[2]] = !state.fx.byp[d[2]]; syncByp(); drawFx(); } }));
   };
-  var fxItems = FXDEF.map(function (d) { return [d[0], Fx, d[1], PD[d[1]], { after: drawFx }]; });
-  var mItems = MASTERDEF.map(function (d) { return [d[0], Sg, d[1], PD[d[1]]]; });
-  return PL.win('Effects', 'fx', PL.col([PL.knobs(fxItems, 4, { under: under }), phLabel('Master'), PL.knobs(mItems, 3)], 'in'), { id: 'fx' });
+  var read = null, showT = function () { if (read) read.textContent = PD_TIME.f(TIMEALL.t); };
+  var items = FXDEF.map(function (d) { return [d[0], Fx, d[1], PD[d[1]], { after: drawFx }]; });
+  items.push(['Time', function () { return TIMEALL; }, 't', PD_TIME, { after: showT }, function (n, j, cx, cy, cw, Z) {
+    ui.timeK = n; n.lab.style.visibility = 'hidden';
+    read = readout(cx, cy + Z.S / 2 + 1, Math.min(cw - 2, labW('0.0001×', Z.fs) + 8), Z, 'Time. Tap for the fine-tuning pad.', function () { openTimePad(); });
+    showT(); ui.syncers.push(showT); ui.showTime = showT;
+  }]);
+  items.push(['Detune', Sg, 'masterDetune', PD.masterDetune]);
+  return PL.win('Effects', 'fx', PL.knobs(items, 6, { under: under }), { id: 'fx' });
+}
+// A small glass readout button (the Pitch and Time labels), centred on cx with its top at y.
+function readout(cx, y, rw, Z, aria, onTap) {
+  var r = el('button', at(cx - rw / 2, y, rw, Z.lh + 2) + ';box-sizing:border-box;padding:0;border:none;border-radius:3px;background:#050406;' +
+    'box-shadow:inset 0 1px 3px rgba(0,0,0,0.9);font-family:inherit;font-size:' + Z.fs + 'px;font-weight:700;letter-spacing:0.02em;line-height:' + (Z.lh + 2) + 'px;' +
+    'color:' + P.accent + ';text-shadow:0 0 5px ' + P.accentGlow + ';white-space:nowrap;overflow:hidden;cursor:pointer');
+  r.type = 'button'; r.setAttribute('aria-label', aria);
+  r.addEventListener('click', onTap);
+  return r;
 }
 function phLabel(t) {
   return { m: function (w, Z) { return { h: Z.lh + 2, mw: labW(t, Z.fs), f: 0 }; },
     d: function (x, y, w, h, Z) { famLabel(cl(x + w / 2, y + (h - Z.lh) / 2, w, t, PRINT(Z.fs) + ';line-height:' + Z.lh + 'px')); } };
 }
-// Oscillator window i: its wave screen (tap for the next wave), then four knobs in cols columns. On Osc 1 and 4 the Pitch
-// knob's label is a readout of the frequency; tapping it opens the keypad.
-function phOsc(i, cols) {
+// Oscillator window i: a half-length wave screen (tap for the next wave) over Gain | Pitch (or Gain | Detune), with the
+// other two knobs (Phase / Spin or Mult / Div) stacked beside them on the corridor side. On Osc 1 and 4 the Pitch label is
+// a readout of the frequency; tapping it opens the keypad.
+function phOsc(i) {
   var O = function () { return state.osc[i]; }, main = i % 3 === 0, read = null;
   var showHz = function () { if (read) read.textContent = Math.round(state.osc[i].freq) + ' Hz'; };
   var items = main ? [['Gain', O, 'gain', PD.mgain], ['Pitch', O, 'freq', PD.freq, { after: showHz }], ['Phase', O, 'phase', PD.phase], ['Spin', O, 'speed', PD.speed]]
                    : [['Gain', O, 'gain', PD.cgain], ['Detune', O, 'det', PD.det], ['Mult', O, 'mul', PD.mul], ['Div', O, 'div', PD.div]];
-  var knobs = PL.knobs(items.map(function (it, k) {
-    while (it.length < 5) it.push(null);
+  var withCb = function (it, k) {
+    it = it.slice(); while (it.length < 5) it.push(null);
     return it.concat([function (n, j, cx, cy, cw, Z) {
-      ui.osc[i].k.push(n);
+      (ui.osc[i] = ui.osc[i] || { k: [] }).k[k] = n;   // Y windows draw the stacked knobs before the wave screen
       if (!(main && k === 1)) return;
       n.lab.style.visibility = 'hidden';
-      var rw = Math.min(cw - 2, labW('500 Hz', Z.fs) + 10);
-      read = el('button', at(cx - rw / 2, cy + Z.S / 2 + 1, rw, Z.lh + 2) + ';box-sizing:border-box;padding:0;border:none;border-radius:3px;background:#050406;' +
-        'box-shadow:inset 0 1px 3px rgba(0,0,0,0.9);font-family:inherit;font-size:' + Z.fs + 'px;font-weight:700;letter-spacing:0.04em;line-height:' + (Z.lh + 2) + 'px;' +
-        'color:' + P.accent + ';text-shadow:0 0 5px ' + P.accentGlow + ';white-space:nowrap;cursor:pointer');
-      read.type = 'button'; read.setAttribute('aria-label', 'Osc ' + (i + 1) + ' pitch. Tap to type a frequency.');
-      read.addEventListener('click', function () { openKeypad(i); });
+      read = readout(cx, cy + Z.S / 2 + 1, Math.min(cw - 2, labW('500 Hz', Z.fs) + 10), Z, 'Osc ' + (i + 1) + ' pitch. Tap to type a frequency.', function () { openKeypad(i); });
       showHz(); ui.syncers.push(showHz);
     }]);
-  }), cols);
-  var wave = { m: function (w, Z) { return { h: Math.round(Z.fs * 2.4), mw: 30, f: 0 }; },
-    d: function (x, y, w, h, Z) {
-      var g = glass(x, y, w, h, 'Oscillator ' + (i + 1));
-      g.g.style.cursor = 'pointer'; g.g.title = 'Tap: Off, Sine, Triangle, Sawtooth, Square';
-      g.g.addEventListener('click', function () { var o = state.osc[i]; o.wave = (o.wave + 1) % 5; drawWave(i); drawRoutes(); });
-      ui.osc[i] = { g: g, k: [] };
-    } };
-  return PL.win(main ? 'Osc ' + (i + 1) + '  ' + (i < 3 ? 'X-L' : 'Y-R') : 'Osc ' + (i + 1), i < 3 ? 'x' : 'y', PL.col([wave, knobs], 'in'), { osc: i });
+  };
+  var wave = PL.fill(2.4, 0.001, function (x, y, w, h) {
+    var g = glass(x, y, w, h, 'Oscillator ' + (i + 1));
+    g.g.style.cursor = 'pointer'; g.g.title = 'Tap: Off, Sine, Triangle, Sawtooth, Square';
+    g.g.addEventListener('click', function () { var o = state.osc[i]; o.wave = (o.wave + 1) % 5; drawWave(i); drawRoutes(); });
+    ui.osc[i] = ui.osc[i] || { k: [] }; ui.osc[i].g = g; ui.osc[i].gr = [x, y, w, h];
+  });
+  var left = PL.col([wave, PL.knobs([withCb(items[0], 0), withCb(items[1], 1)], 2)], 'in');
+  var stack = PL.knobs([withCb(items[2], 2), withCb(items[3], 3)], 1);
+  var body = i < 3 ? PL.row([left, stack], [0.62, 0.38], 'pad') : PL.row([stack, left], [0.38, 0.62], 'pad');
+  return PL.win(main ? 'Osc ' + (i + 1) + '  ' + (i < 3 ? 'X-L' : 'Y-R') : 'Osc ' + (i + 1), i < 3 ? 'x' : 'y', body, { osc: i });
 }
-var oscCol = function (a, cols) { return PL.col(a.map(function (i) { return phOsc(i, cols); }), 'fm'); };
+var oscCol = function (a) { return PL.col(a.map(function (i) { return phOsc(i); }), 'fm'); };
 // Columns (chosen 2026-10-17 from six trial arrangements).
 var PHONE_LAYOUT = { id: 'columns', name: 'Columns', sp: 0.6, tree: function () {
-  return PL.col([PL.row([phSpec(), phScope(0.62)], [0.28, 0.72], 'rt'), PL.row([phSD(), phFX()], [0.46, 0.54], 'rt'),
-    PL.row([oscCol([0, 1, 2], 4), oscCol([3, 4, 5], 4)], [1, 1], 'corr')], ['rt', 'lanes']); } };
+  return PL.col([PL.row([PL.col([phSpec(), phSD()], 'win'), PL.col([phScope(), phFX()], 'rt')], [0, 1], 'rt'),
+    PL.row([oscCol([0, 1, 2]), oscCol([3, 4, 5])], [1, 1], 'corr')], ['lanes']); } };
 // The largest knob size (to 0.5 px) at which the arrangement fits W x H.
 function fitPhone(root, sp, H) {
   var W = PHONE_W - 2 * PM, ok = function (s) { var Z = phoneSizes(s, sp), r = root.m(W, Z); return r.h <= H - 2 * PM - Z.th / 2 && r.mw <= W + 0.5; };
@@ -1446,25 +1484,95 @@ function openKeypad(i) {
   show();
 }
 function closeKeypad() { if (keypad) { keypad.off(); keypad.el.remove(); keypad = null; } }
+// Time pad: a large area for fine-tuning Time (0.0001x to 1000x). Dragging sideways moves it finely (the pad's width is
+// one decade, x10); dragging up / down moves it coarsely (the pad's height is three and a half decades). A ruler under
+// the pad shows where it sits in the whole range. 1x resets; Done, outside or Escape closes. Arrow keys nudge it.
+var timePad = null;
+function openTimePad() {
+  closeTimePad(); closeKeypad();
+  var W = GEO.W, H = GEO.H, d = PD_TIME, L0 = Math.log10(d.min), L1 = Math.log10(d.max);
+  var back = el('div', 'position:absolute;inset:0;background:rgba(0,0,0,0.55);z-index:5');
+  var pw = W - 24, padH = Math.min(260, Math.round(H * 0.36)), ph = 12 + 20 + 8 + 44 + 10 + padH + 10 + 34 + 12 + 44 + 12;
+  var box = el('div', at(12, Math.max(10, (H - ph) / 2), pw, ph) + ';box-sizing:border-box;border-radius:10px;background:#1c1b1e;box-shadow:0 10px 40px rgba(0,0,0,0.7),inset 0 1px 0 rgba(255,255,255,0.08)', back);
+  box.setAttribute('role', 'dialog'); box.setAttribute('aria-label', 'Time');
+  el('div', at(12, 12, pw - 24) + ';font-size:13px;font-weight:800;letter-spacing:0.12em;text-transform:uppercase;color:#ebebeb', box, 'Time');
+  el('div', at(12, 13, pw - 24) + ';text-align:right;font-size:11px;font-weight:700;letter-spacing:0.04em;color:#8f8d92', box, '← → fine · ↑ ↓ coarse');
+  var disp = el('div', at(12, 40, pw - 24, 44) + ';box-sizing:border-box;padding:0 12px;border-radius:5px;background:#050406;box-shadow:inset 0 2px 5px rgba(0,0,0,0.9);' +
+    'font-size:24px;font-weight:700;letter-spacing:0.03em;line-height:44px;text-align:right;color:' + P.accent + ';text-shadow:0 0 8px ' + P.accentGlow, box);
+  var py = 40 + 44 + 10, pad = el('div', at(12, py, pw - 24, padH) + ';box-sizing:border-box;border-radius:6px;cursor:move;touch-action:none;' +
+    'background:repeating-linear-gradient(90deg,rgba(255,255,255,0.05) 0 1px,transparent 1px 24px),repeating-linear-gradient(0deg,rgba(255,255,255,0.05) 0 1px,transparent 1px 24px),#0b0b0d;' +
+    'box-shadow:inset 0 2px 6px rgba(0,0,0,0.9),inset 0 0 0 1px rgba(255,255,255,0.06)', box);
+  pad.setAttribute('role', 'slider'); pad.setAttribute('aria-label', 'Time'); pad.tabIndex = 0;
+  var dot = el('div', 'position:absolute;width:18px;height:18px;margin:-9px 0 0 -9px;border-radius:50%;background:' + P.accent + ';box-shadow:0 0 12px ' + P.accentGlow + ';pointer-events:none', pad);
+  dot.style.left = '50%'; dot.style.top = '50%';
+  // ruler: decades 0.0001 .. 1000 with the current value marked
+  var ry = py + padH + 10, rw = pw - 24, ruler = el('div', at(12, ry, rw, 34), box);
+  for (var e = L0; e <= L1; e++) {
+    var rx = (e - L0) / (L1 - L0) * rw;
+    el('div', at(rx - 0.5, 0, 1, 10) + ';background:#6f6d73', ruler);
+    var lx0 = e === L0 ? 0 : e === L1 ? rw - 44 : rx - 22, al = e === L0 ? 'left' : e === L1 ? 'right' : 'center';   // end labels stay inside
+    if ((e - L0) % 2 && e !== L1) continue;   // every other decade labelled (and the top), so the labels never touch
+    el('div', at(lx0, 13, 44) + ';text-align:' + al + ';font-size:9px;font-weight:700;color:#8f8d92', ruler, (e < 0 ? Math.pow(10, e).toFixed(-e) : String(Math.pow(10, e))) + '×');
+  }
+  var mark = el('div', at(0, -2, 3, 14) + ';margin-left:-1.5px;border-radius:2px;background:' + P.accent + ';box-shadow:0 0 6px ' + P.accentGlow, ruler);
+  var lv = Math.log10(TIMEALL.t);
+  var apply = function () {
+    lv = clamp(lv, L0, L1); TIMEALL.t = Math.pow(10, lv);
+    disp.textContent = d.f(TIMEALL.t); pad.setAttribute('aria-valuetext', d.f(TIMEALL.t));
+    mark.style.left = ((lv - L0) / (L1 - L0) * rw) + 'px';
+    if (ui.timeK) ui.timeK.sync(); if (ui.showTime) ui.showTime();
+  };
+  pad.addEventListener('pointerdown', function (e) {
+    e.preventDefault(); pad.setPointerCapture(e.pointerId);
+    var lx = e.clientX, ly = e.clientY, k = stageScale(), sx = 0, sy = 0;
+    var move = function (ev) {
+      var dx = (ev.clientX - lx) / k, dy = (ev.clientY - ly) / k, f = ev.shiftKey ? 0.1 : 1;
+      lx = ev.clientX; ly = ev.clientY; sx += dx; sy += dy;
+      lv += f * (dx / (pw - 24) - dy / padH * 3.5);
+      dot.style.left = clamp(0.5 + sx / (pw - 24)) * 100 + '%'; dot.style.top = clamp(0.5 + sy / padH) * 100 + '%';
+      apply();
+    };
+    var up = function () { pad.removeEventListener('pointermove', move); pad.removeEventListener('pointerup', up); pad.removeEventListener('pointercancel', up); dot.style.left = '50%'; dot.style.top = '50%'; };
+    pad.addEventListener('pointermove', move); pad.addEventListener('pointerup', up); pad.addEventListener('pointercancel', up);
+  });
+  var by = ry + 34 + 12, bw = (pw - 24 - 8) / 2, keep = panel;
+  panel = box;
+  key(12, by, bw, 44, '1×', null, { fs: 13, aria: 'Reset Time to 1x', onClick: function () { lv = 0; apply(); } });
+  key(12 + bw + 8, by, bw, 44, 'Done', null, { fs: 13, onClick: closeTimePad });
+  panel = keep;
+  back.addEventListener('click', function (e) { if (e.target === back) closeTimePad(); });
+  var onKey = function (e) {
+    var st = e.shiftKey ? 0.002 : 0.02;
+    if (e.key === 'ArrowRight') lv += st; else if (e.key === 'ArrowLeft') lv -= st; else if (e.key === 'ArrowUp') lv += 0.25; else if (e.key === 'ArrowDown') lv -= 0.25;
+    else if (e.key === 'Escape' || e.key === 'Enter') { closeTimePad(); e.preventDefault(); return; } else return;
+    e.preventDefault(); e.stopPropagation(); apply();
+  };
+  document.addEventListener('keydown', onKey, true);
+  timePad = { el: back, off: function () { document.removeEventListener('keydown', onKey, true); } };
+  apply();
+}
+function closeTimePad() { if (timePad) { timePad.off(); timePad.el.remove(); timePad = null; } }
 // Signal paths on the phone: drops from each oscillator into its lane in the corridor, the lanes up into Effects, Effects
 // up into the Oscilloscope, the Oscilloscope left into the Spectrum, and Source & Display right into Effects.
 function phoneRoutes(Z) {
   var G = GEO, R = G.rect, O = G.osc, up = function (x, y) { return 'M' + x + ' ' + y + 'l-3 5h6z'; },
       left = function (x, y) { return 'M' + x + ' ' + y + 'l5 -3v6z'; }, right = function (x, y) { return 'M' + x + ' ' + y + 'l-5 -3v6z'; };
-  var cx = Math.round((O[0][0] + O[0][2] + O[3][0]) / 2), lx = [cx - RB / 2, cx + RB / 2], wy = Z.ti + Math.round(Z.fs * 2.4) / 2;
+  var cx = Math.round((O[0][0] + O[0][2] + O[3][0]) / 2), lx = [cx - RB / 2, cx + RB / 2];
   G.pr = { lane: [], laneHead: [], after: [], afterHeads: [], inP: [], inHeads: [], drops: [], dropY: [], laneX: lx };
   for (var i = 0; i < 6; i++) {
-    var o = O[i], y = Math.round(o[1] + wy);
+    var o = O[i], gr = ui.osc[i].gr, y = Math.round(gr[1] + gr[3] / 2);   // level with the wave screen's centre
     G.pr.dropY[i] = y;
     G.pr.drops[i] = i < 3 ? 'M' + (o[0] + o[2]) + ' ' + y + 'H' + lx[0] : 'M' + o[0] + ' ' + y + 'H' + lx[1];
   }
   var fx = R.fx, sc = R.scope, sp = R.spec, sd = R.sd, fb = fx[1] + fx[3], ot = O[0][1] - Math.ceil(Z.th / 2);
-  var ty = [fb + Math.round((ot - fb) * 0.4), fb + Math.round((ot - fb) * 0.75)];   // turns: X higher, Y lower
-  var ex = [fx[0] + 14, fx[0] + 14 + RB];                                            // where the lanes enter Effects
+  var ty = [fb + Math.round((ot - fb) * 0.4), fb + Math.round((ot - fb) * 0.75)];   // turns (only if a lane misses Effects): X higher, Y lower
+  // The lanes enter Effects between the second and third B keys (Effects is one row of six knob cells).
+  var cell = (fx[2] - 2 * Z.pad) / 6, mid = Math.round(fx[0] + Z.pad + 2 * cell), ex = [mid - RB / 2, mid + RB / 2];
+  var straight = Math.abs(ex[0] - lx[0]) < 1;
   var ox = [fx[0] + Math.round(fx[2] * 0.62), fx[0] + Math.round(fx[2] * 0.62) + RB]; // Effects -> Oscilloscope
-  var sy = Math.round(sp[1] + sp[3] / 2), iy = Math.round(fx[1] + fx[3] / 2);
+  var sy = Math.round(Math.min(sp[1] + sp[3] / 2, sc[1] + sc[3] / 2)), iy = Math.round(fx[1] + fx[3] / 2);
   [0, 1].forEach(function (c) {
-    G.pr.lane[c] = 'V' + ty[c] + 'H' + ex[c] + 'V' + (fb + 6);
+    G.pr.lane[c] = straight ? 'V' + (fb + 6) : 'V' + ty[c] + 'H' + ex[c] + 'V' + (fb + 6);
     G.pr.laneHead[c] = up(ex[c], fb + 1);
     G.pr.after[c] = 'M' + ox[c] + ' ' + fx[1] + 'V' + (sc[1] + sc[3] + 6) + 'M' + sc[0] + ' ' + (sy + (c ? RB / 2 : -RB / 2)) + 'H' + (sp[0] + sp[2] + 6);
     G.pr.afterHeads[c] = up(ox[c], sc[1] + sc[3] + 1) + left(sp[0] + sp[2] + 1, sy + (c ? RB / 2 : -RB / 2));
@@ -1493,7 +1601,9 @@ function drawPhoneRoutes() {
   routeSvg.innerHTML = s;
 }
 function buildPhone(H) {
-  closeKeypad();
+  closeKeypad(); closeTimePad();
+  KEY_TEXT_LED = true;
+  FM_STYLE = { on: '#f0484a', glow: 'rgba(240,72,74,0.8)', off: SCH_LIGHT ? '#2a292e' : '#e4e3e6' };   // red on; off: opposite of the background
   var L = PHONE_LAYOUT, root = L.tree(), Z = fitPhone(root, L.sp, H);
   var G = { lk: 'phone', W: PHONE_W, H: H, phone: true, ringSeg: [], osc: [], rect: {}, Z: Z };
   GEO = G; ui = { syncers: [], osc: [], rings: [] }; pdisp = null;
