@@ -922,7 +922,7 @@ function drawPresets() {
   if (!pdisp) return;   // the phone's preset list is closed
   pdisp.innerHTML = '';
   PRESETS.forEach(function (p, i) {
-    var it = el('div', 'padding:0 10px;cursor:pointer;overflow:hidden;text-overflow:ellipsis' + (i === presetSel ? ';background:rgba(220,232,255,0.16)' : ''), pdisp, pname(i));
+    var it = el('div', 'padding:0 ' + (GEO && GEO.phone ? 4 : 10) + 'px;cursor:pointer;overflow:hidden;text-overflow:ellipsis' + (i === presetSel ? ';background:rgba(220,232,255,0.16)' : ''), pdisp, pname(i));
     it.setAttribute('data-i', String(i)); it.setAttribute('role', 'option'); it.setAttribute('aria-selected', i === presetSel ? 'true' : 'false');
   });
   // Keep the selected line in view.
@@ -1157,15 +1157,16 @@ function buildScheme(m) {
 // the windows (rows and columns of windows holding blocks of controls); fitPhone finds the largest knob size at which it
 // fits the panel's width and height, and every other size (labels, keys, nameplates, padding, gaps) follows from the
 // knob size (phoneSizes). Height left over is spread evenly between the windows.
-// Layout (Columns, 2026-10-17): a thin left column - Spectrum, then Source & Display as one column of keys down to the
-// bottom of the screen - and to its right the Oscilloscope (screen and a narrow column of beam controls), Effects, and
-// the X oscillators (1-3) and Y oscillators (4-6) as two columns on the Oscilloscope's left and right edges, with a
-// corridor between them for the signal paths: each oscillator drops into its channel's lane (L / X red, R / Y cyan),
-// the lanes rise straight up the corridor's centre into Effects and out of its top into the Oscilloscope, the
-// Oscilloscope feeds the Spectrum, and Source & Display (Mic, Line, File) feeds Effects. The Y windows mirror the X ones; FM rings sit between stacked oscillators on
-// the corridor side, red when on. Keys show their state by their label (light grey, white when on), not a light.
-// The preset list opens over the Spectrum (Presets key); an oscillator's pitch readout opens a keypad, the Speed readout a
-// large drag pad.
+// Layout (Columns, 2026-10-17): a thin left column - Spectrum, then Source & Display down to the bottom of the screen
+// (the sources as a square, Mute / Freeze / Night-Day, then Presets: Save and a scrolling list) - and to its right the
+// Oscilloscope (screen and a narrow column of beam controls), Effects, and the X oscillators (1-3) and Y oscillators
+// (4-6) as two columns on the Oscilloscope's left and right edges, with a corridor between them for the signal paths:
+// each oscillator drops into its channel's lane (L / X red, R / Y cyan), the lanes rise straight up the corridor's
+// centre into Effects and out of its top into the Oscilloscope, and the Oscilloscope feeds the Spectrum (cyan over
+// red). Source & Display feeds Osc 1 (lit on the OSC source) and Effects (lit on Mic, Line, File). The Y windows mirror
+// the X ones; FM rings sit between stacked oscillators on the corridor side, red when on. Keys show their state by their
+// label (light grey, white when on), not a light. No Play key: the first tap starts the audio. An oscillator's pitch
+// readout opens a keypad, the Speed readout a large drag pad.
 var PHONE_W = 390, PM = 4, RB = 6;   // panel width, outer margin, L / R line spacing
 function phoneSizes(s, sp) {
   var tm = Math.max(4, Math.round(s * 0.28)), S = s + 2 * tm, fs = clamp(Math.round(s * 0.9) / 2, 6.5, 13);
@@ -1321,56 +1322,51 @@ function phSpec() {
     GEO.specIn = [x, y, w, h];
   }), { id: 'spec' });
 }
-function phTop() {   // Presets (opens the list over the Spectrum), the Night / Day key, named for the scheme it switches to
-  return PL.keys(['Presets', 'Night'], 1, function (i, x, y, w, h, Z) {
-    if (i === 0) ui.presetsK = key(x, y, w, h, 'Presets', presetsOpen ? 'on' : 'off', { fs: Z.fs, small: Z.small, aria: 'Presets', onClick: function () { presetsOpen = !presetsOpen; phPresetPanel(); } });
-    if (i === 1) { var o = 1 - schemeIdx; ui.schemeK = key(x, y, w, h, SCHEMES[o].name, null, { fs: Z.fs, small: Z.small, aria: 'Switch to the ' + SCHEMES[o].name + ' scheme', onClick: function () { setScheme(o); } }); }
+function phInput() {   // the four sources (setSource order) as a square: OSC Mic / Line File. OSC is the oscillators (Tone).
+  var pos = [];
+  return PL.keys(['OSC', 'Mic', 'Line', 'File'], 2, function (i, x, y, w, h, Z) {
+    pos.push([x, y]);
+    if (i === 3) { ui.src = radio(pos, w, h, ['OSC', 'Mic', 'Line', 'File'], function (j) { setSource(['tone', 'mic', 'line', 'file'][j]); }, Z.fs, Z.small); pos = []; }
   });
 }
-function phPlay() {   // one key: ▶ while stopped, ■ while playing
-  return PL.keys(['Play'], 1, function (i, x, y, w, h, Z) {
-    ui.ps = key(x, y, w, h, '', 'off', { tint: 'red', glyph: '▶\uFE0E', fs: Z.fs + 3, small: Z.small, aria: 'Play', onClick: function () { if (A.running) stop(); else play(); } });
-  });
-}
-function phMuteFreeze() {
-  return PL.keys(['Mute', 'Freeze'], 1, function (i, x, y, w, h, Z) {
+// Mute, Freeze and the Night / Day key (named for the scheme it switches to), one under another.
+function phDisplayKeys() {
+  return PL.keys(['Mute', 'Freeze', 'Night'], 1, function (i, x, y, w, h, Z) {
     if (i === 0) ui.mute = key(x, y, w, h, 'Mute', 'off', { tint: 'blue', fs: Z.fs, small: Z.small, aria: 'Mute audio', onClick: function () { state.mute = !state.mute; ui.mute.set(state.mute ? 'rec' : 'off'); setGain(); } });
     if (i === 1) ui.freeze = key(x, y, w, h, 'Freeze', 'off', { tint: 'blue', fs: Z.fs, small: Z.small, aria: 'Freeze display', onClick: function () { state.freeze = !state.freeze; ui.freeze.set(state.freeze ? 'on' : 'off'); } });
+    if (i === 2) { var o = 1 - schemeIdx; ui.schemeK = key(x, y, w, h, SCHEMES[o].name, null, { fs: Z.fs, small: Z.small, aria: 'Switch to the ' + SCHEMES[o].name + ' scheme', onClick: function () { setScheme(o); } }); }
   });
 }
-function phInput() {   // Tone, Mic, Line, File (setSource order), one under another
-  var pos = [];
-  return PL.keys(['Tone', 'Mic', 'Line', 'File'], 1, function (i, x, y, w, h, Z) {
-    pos.push([x, y]);
-    if (i === 3) { ui.src = radio(pos, w, h, ['Tone', 'Mic', 'Line', 'File'], function (j) { setSource(['tone', 'mic', 'line', 'file'][j]); }, Z.fs, Z.small); pos = []; }
-  });
+// Presets, at the bottom of Source: the label, a Save key, and the list (scrolls; tap a preset to load it) taking the
+// rest of the window's height.
+function savePreset() {
+  if (presetSel >= FACTORY) PRESETS[presetSel] = capturePreset(PRESETS[presetSel].name);
+  else { PRESETS.push(capturePreset('User ' + (PRESETS.length - FACTORY + 1))); presetSel = PRESETS.length - 1; }
+  savePresets(); drawPresets();
 }
-var presetsOpen = false;
-// The preset list over the Spectrum: Save and Rand keys on top, the list under them (tap a preset to load it).
-function phPresetPanel() {
-  if (ui.presetsBox) { ui.presetsBox.remove(); ui.presetsBox = null; pdisp = null; }
-  if (ui.presetsK) { ui.presetsK.set(presetsOpen ? 'on' : 'off'); ui.presetsK.b.setAttribute('aria-pressed', presetsOpen ? 'true' : 'false'); }
-  if (!presetsOpen || !GEO.specIn) return;
-  var Z = GEO.Z, r = GEO.specIn, box = el('div', at(r[0], r[1], r[2], r[3]) + ';border-radius:4px;background:#050406;box-shadow:inset 0 2px 5px rgba(0,0,0,0.9);z-index:3');
-  box.setAttribute('role', 'dialog'); box.setAttribute('aria-label', 'Presets');
-  ui.presetsBox = box;
-  var g = 3, kw = (r[2] - 2 * g - g) / 2, kh = Z.bk, keep = panel;
-  panel = box;
-  key(g, g, kw, kh, 'Save', null, { fs: Z.fs - 0.5, small: true, aria: 'Save preset', onClick: function () {
-    if (presetSel >= FACTORY) PRESETS[presetSel] = capturePreset(PRESETS[presetSel].name);
-    else { PRESETS.push(capturePreset('User ' + (PRESETS.length - FACTORY + 1))); presetSel = PRESETS.length - 1; }
-    savePresets(); drawPresets(); } });
-  key(g + kw + g, g, kw, kh, 'Rand', null, { fs: Z.fs - 0.5, small: true, aria: 'Randomize', onClick: function () { randomize(); syncUI(); } });
-  var lh = Z.plh, top = g + kh + g, n = Math.max(1, Math.floor((r[3] - top - 10) / lh));
-  presetList(0, top, r[2], n, lh, Z.fs);
-  pdisp.style.boxShadow = 'none'; pdisp.style.background = 'transparent';
-  panel = keep;
-  drawPresets();
+function phPresets() {
+  return PL.col([
+    phLabel('Presets'),
+    PL.keys(['Save'], 1, function (i, x, y, w, h, Z) { key(x, y, w, h, 'Save', null, { fs: Z.fs, small: Z.small, aria: 'Save preset', onClick: savePreset }); }),
+    PL.fill(6, 1, function (x, y, w, h, Z) { presetList(x, y, w, Math.max(1, Math.floor((h - 10) / Z.plh)), Z.plh, Z.fs); drawPresets(); })
+  ], 'in');
 }
-// Source (Source & Display): one column of keys - Presets, Night / Day, Play / Stop, Mute, Freeze, Tone, Mic, Line,
-// File - spread down the window's height. Named just "Source" here: the nameplate is what sets the column's minimum
-// width, and the longer name would keep it wide.
-function phSD() { return PL.win('Source', 'sd', PL.col([phTop(), phPlay(), phMuteFreeze(), phInput()], 'in'), { id: 'sd' }); }
+// Source (Source & Display): the sources, then Mute / Freeze / Night-Day, then Presets filling the bottom. Named just
+// "Source" here: the nameplate is what sets the column's minimum width, and the longer name would keep it wide.
+// There is no Play key on the phone: the first tap anywhere starts the audio (see armPhoneAutoStart).
+function phSD() { return PL.win('Source', 'sd', PL.col([phInput(), phDisplayKeys(), phPresets()], ['pad', 'win']), { id: 'sd' }); }
+// Browsers only let audio start from a user gesture, so on the phone (no Play key) the first tap or key press starts it.
+// A loaded file plays at once (the file picker's own tap counts).
+var phoneAutoStart = false;
+function armPhoneAutoStart() {
+  if (phoneAutoStart) return;
+  phoneAutoStart = true;
+  var go = function () {
+    if (!GEO || !GEO.phone) return;
+    if (!A.running) play(); else if (A.ctx && A.ctx.state !== 'running') A.ctx.resume();
+  };
+  ['pointerup', 'touchend', 'click', 'keydown'].forEach(function (t) { document.addEventListener(t, go, true); });
+}
 // Effects: one row of the four stages (a short B bypass key under each), Speed and Detune. Speed is Time x Fast as one
 // knob (0.0001x to 1000x, log), labelled, with its value in a window under the label that opens the Speed pad.
 var TIMEALL = { get t() { return state.masterTime * state.masterTimeFast; },
@@ -1627,14 +1623,20 @@ function phoneRoutes(Z) {
   var fx = R.fx, sc = R.scope, sp = R.spec, sd = R.sd, fb = fx[1] + fx[3], sb = sc[1] + sc[3];
   var sy = Math.round(Math.min(sp[1] + sp[3] / 2, sc[1] + sc[3] / 2)), iy = Math.round(fx[1] + fx[3] / 2);
   [0, 1].forEach(function (c) {
-    // straight up the centre: into Effects' bottom edge, then out of its top edge into the Oscilloscope (not drawn across it)
+    // straight up the centre: into Effects' bottom edge, then out of its top edge into the Oscilloscope (not drawn across it).
+    // Oscilloscope -> Spectrum: the R / Y (cyan) line above the L / X (red) one.
+    var spy = sy + (c ? -RB / 2 : RB / 2);
     G.pr.lane[c] = 'V' + (fb + 6);
     G.pr.laneHead[c] = up(lx[c], fb + 1);
-    G.pr.after[c] = 'M' + lx[c] + ' ' + fx[1] + 'V' + (sb + 6) + 'M' + sc[0] + ' ' + (sy + (c ? RB / 2 : -RB / 2)) + 'H' + (sp[0] + sp[2] + 6);
-    G.pr.afterHeads[c] = up(lx[c], sb + 1) + left(sp[0] + sp[2] + 1, sy + (c ? RB / 2 : -RB / 2));
+    G.pr.after[c] = 'M' + lx[c] + ' ' + fx[1] + 'V' + (sb + 6) + 'M' + sc[0] + ' ' + spy + 'H' + (sp[0] + sp[2] + 6);
+    G.pr.afterHeads[c] = up(lx[c], sb + 1) + left(sp[0] + sp[2] + 1, spy);
     G.pr.inP[c] = 'M' + (sd[0] + sd[2]) + ' ' + (iy + (c ? RB / 2 : -RB / 2)) + 'H' + (fx[0] - 6);
     G.pr.inHeads[c] = right(fx[0] - 1, iy + (c ? RB / 2 : -RB / 2));
   });
+  // Source -> Osc 1 (the OSC source): level with Osc 1's wave screen, into its left edge.
+  var o1 = O[0];
+  G.pr.oscIn = 'M' + (sd[0] + sd[2]) + ' ' + G.pr.dropY[0] + 'H' + (o1[0] - 6);
+  G.pr.oscInHead = right(o1[0] - 1, G.pr.dropY[0]);
 }
 function drawPhoneRoutes() {
   var G = GEO, R = G.pr, s = '', ext = state.src !== 'tone', lit = ext ? [false, false, false, false, false, false] : routeLit();
@@ -1653,6 +1655,7 @@ function drawPhoneRoutes() {
     s += path(R.inP[c], ext ? col : P.idle, !ext, ext ? 1.4 : 1.6) + fill(R.inHeads[c], ext ? col : P.idle);
   });
   R.drops.forEach(function (d, i) { var dead = !lit[i]; s += path(d, dead ? P.idle : (i < 3 ? P.X : P.Y), dead, dead ? 1.6 : 1.4); });
+  s += path(R.oscIn, ext ? P.idle : P.X, ext, ext ? 1.6 : 1.4) + fill(R.oscInHead, ext ? P.idle : P.X);   // lit while OSC is the source
   G.ringSeg.forEach(function (d, li) { var oi = RING_OSC[li], on = fmOn(oi) && !ext; s += path(d, on ? (oi < 3 ? P.X : P.Y) : P.inkMute, false, on ? 2 : 1.4); });
   routeSvg.innerHTML = s;
 }
@@ -1677,12 +1680,12 @@ function buildPhone(H) {
     fmRing(cx, cy, li, Z.fm + 4, rs, Z.fs, null);
   });
   phoneRoutes(Z);
+  armPhoneAutoStart();
   var NS = 'http://www.w3.org/2000/svg';
   routeSvg = document.createElementNS(NS, 'svg');
   routeSvg.setAttribute('width', String(PHONE_W)); routeSvg.setAttribute('height', String(H)); routeSvg.setAttribute('aria-hidden', 'true');
   routeSvg.style.cssText = 'position:absolute;left:0;top:0;overflow:visible;pointer-events:none';
   panel.appendChild(routeSvg);
-  phPresetPanel();
   syncUI();
 }
 
