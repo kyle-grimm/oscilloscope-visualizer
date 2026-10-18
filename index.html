@@ -38,7 +38,7 @@
    fundamental -> Chord -> Chord 2 (wave, gain, detune, multiple / divide 1-13). A chord layer either adds into its channel
    or, with FM on (the ring between it and its mother), frequency-modulates its mother and leaves the mix.
    Effects: Filter -> Band Pass -> Saturation -> Chorus, each bypassable. Output: 0.2 gain, then the original's fatigue guard.
-   Panel: osc 1-3 = X (left, red), osc 4-6 = Y (right, cyan). Two windows: Source & Display, Effects (with Master Time, Fast,
+   Panel: osc 1-3 = X (left, red), osc 4-6 = Y (right, green). Two windows: Source & Display, Effects (with Master Time, Fast,
    Detune), plus the beam controls inside the Oscilloscope frame. A Scheme window switches the Night / Day looks borrowed
    from the Video Feedback Visualizer (see schemes). Phones (portrait, 600 px wide or less, or #phone) get the Columns
    layout, which fits the whole panel on the screen (see phone layouts). Earlier files are in snapshots/.
@@ -49,7 +49,7 @@ window.addEventListener('error', function (e) { REPORT.push('ERROR ' + e.message
 
 // ---------------------------------------------------------------- palette and helpers
 var P = { ink: '#ebebeb', inkDim: '#a6a4a8', inkMute: '#8f8d92', line: '#515053', accent: '#dce8ff', accentGlow: 'rgba(160,195,255,0.8)', accent3: '#af78ed', select: '#eded78',
-  rec: '#f0484a', off: '#3d3b40', byp: '#3568b8', tabSub: '#333236', X: '#e5484d', Y: '#29c9e0', idle: '#77757b' };
+  rec: '#f0484a', off: '#3d3b40', byp: '#3568b8', tabSub: '#333236', X: '#e5484d', Y: '#3dd068', idle: '#77757b' };
 var TAU = Math.PI * 2;
 function clamp(v, a, b) { a = a == null ? 0 : a; b = b == null ? 1 : b; return v < a ? a : v > b ? b : v; }
 var stage = document.getElementById('stage'), panel = document.getElementById('panel'), tip = document.getElementById('tip');
@@ -896,7 +896,7 @@ function drawFx() {
   }, { fill: true, mid: 'rgba(220,232,255,0.14)', dim: f.byp.filter && f.byp.bandpass });
 }
 
-// Signal paths: L red, R cyan. An oscillator frequency-modulated by its right-hand neighbour is drawn as sounding through
+// Signal paths: L red, R green. An oscillator frequency-modulated by its right-hand neighbour is drawn as sounding through
 // that neighbour: its own drop goes grey and dotted and the FM link takes the channel colour. Chained FM (3 -> 2 -> 1) leaves
 // the third module as the channel's only live path. An Off oscillator never lights, and an Off oscillator in FM mode
 // modulates nothing (as in the engine), so the one before it keeps its own live path. The lane is grey up to the first
@@ -988,16 +988,16 @@ function syncUI() {
 // keys (Scheme window, or the View window on phones) switch them; the choice is kept in localStorage. (2026-10-17: four
 // 5★ favourites and the pre-scheme Original were tried and dropped; the pre-scheme file is in snapshots/.)
 // Each window is one of the Lab's five colour families, in the feedback app's order: Oscilloscope = Feedback, Spectrum =
-// Chromakey, Source & Display = Transform, Effects = Color, Scheme = Layers; in both schemes (2026-10-17) Oscilloscope green,
+// Chromakey, Source & Display = Transform, Effects = Color, Scheme = Layers; in both schemes (2026-10-17) Oscilloscope cyan,
 // Spectrum blue, Source purple (violet + 8) and Effects yellow. The X and Y oscillator windows take the scheme's
 // window treatment in their own channel hues (their outlines and nameplates keep the channel colours).
 var SCH_KEYS = ['hue.feedback', 'hue.chroma', 'hue.transform', 'hue.color', 'hue.layers', 'panel.sat', 'panel.light', 'stage', 'accent', 'outline',
   'texture', 'texStrength', 'sheen', 'cap', 'skirt', 'pointer', 'pointerColor', 'scale', 'font', 'weight', 'case', 'tracking', 'labelColor', 'nameplate'];
 var SCHEMES = [
-  {"id":"night","name":"Night","f":["green","blue","violet","yellow","neutral","rich","pale","slate","cyan","none","scanlines","subtle","soft","graphite","knurled","line","family","ticks","sairaC","700","upper","tight","familyDark","black"],"j":{"h":[0,0,8,0,-2.808],"s":[0.004,0.043,-0.063,0.025,-0.062],"l":0.003,"p":0.005}},
-  {"id":"day","name":"Day","f":["green","blue","violet","yellow","blue","rich","pale","light","cyan","family","hatch","subtle","soft","graphite","knurled","line","family","ticks","sairaC","700","upper","tight","familyDark","ink"],"j":{"h":[0,0,8,0,-5.68],"s":[0.036,-0.034,-0.051,0.053,0.086],"l":-0.006,"p":-0.001}}
+  {"id":"night","name":"Night","f":["cyan","blue","violet","yellow","neutral","rich","pale","slate","cyan","none","scanlines","subtle","soft","graphite","knurled","line","family","ticks","sairaC","700","upper","tight","familyDark","black"],"j":{"h":[0,0,8,0,-2.808],"s":[0.004,0.043,-0.063,0.025,-0.062],"l":0.003,"p":0.005}},
+  {"id":"day","name":"Day","f":["cyan","blue","violet","yellow","blue","rich","pale","light","cyan","family","hatch","subtle","soft","graphite","knurled","line","family","ticks","sairaC","700","upper","tight","familyDark","ink"],"j":{"h":[0,0,8,0,-5.68],"s":[0.036,-0.034,-0.051,0.053,0.086],"l":-0.006,"p":-0.001}}
 ];
-var SCH_FAMS = ['scope', 'spec', 'sd', 'fx', 'scheme'], SCH_XY = { x: 358, y: 188 };   // X / Y: the channel hues of P.X, P.Y
+var SCH_FAMS = ['scope', 'spec', 'sd', 'fx', 'scheme'], SCH_XY = { x: 358, y: 138 };   // X / Y: the channel hues of P.X, P.Y
 var HUES = { red: 0, orange: 24, amber: 40, yellow: 54, lime: 85, green: 125, mint: 150, teal: 168, cyan: 188, sky: 200, blue: 215, indigo: 245, violet: 272, magenta: 305, pink: 335, neutral: null };
 var PSAT = { muted: 0.14, soft: 0.28, rich: 0.48, vivid: 0.72 }, PLIGHT = { deep: 0.12, dark: 0.22, mid: 0.34, light: 0.55, pale: 0.74 };
 var STAGES = { black: [0, 0, 0.03], charcoal: [0, 0, 0.11], slate: [215, 0.12, 0.15], warm: [30, 0.12, 0.14], tinted: null, light: [40, 0.06, 0.86] };
@@ -1186,8 +1186,8 @@ function buildScheme(m) {
 // scrolling list) - and to its right the
 // Oscilloscope (screen and a narrow column of beam controls), Effects, and the X oscillators (1-3) and Y oscillators
 // (4-6) as two columns on the Oscilloscope's left and right edges, with a corridor between them for the signal paths:
-// each oscillator drops into its channel's lane (L / X red, R / Y cyan), the lanes rise straight up the corridor's
-// centre into Effects and out of its top into the Oscilloscope, and the Oscilloscope feeds the Spectrum (cyan over
+// each oscillator drops into its channel's lane (L / X red, R / Y green), the lanes rise straight up the corridor's
+// centre into Effects and out of its top into the Oscilloscope, and the Oscilloscope feeds the Spectrum (green over
 // red). Source & Display feeds Osc 1 (lit on the OSC source) and Effects (lit on Mic, Line, File). The Y windows mirror
 // the X ones; FM rings sit between stacked oscillators on the corridor side, red when on. Keys show their state by their
 // label (light grey, white when on), not a light. No Play key: the first tap starts the audio. An oscillator's pitch
@@ -1679,7 +1679,7 @@ function phoneRoutes(Z) {
   var sy = Math.round(Math.min(sp[1] + sp[3] / 2, sc[1] + sc[3] / 2)), iy = Math.round(fx[1] + fx[3] / 2);
   [0, 1].forEach(function (c) {
     // straight up the centre: into Effects' bottom edge, then out of its top edge into the Oscilloscope (not drawn across it).
-    // Oscilloscope -> Spectrum: the R / Y (cyan) line above the L / X (red) one.
+    // Oscilloscope -> Spectrum: the R / Y (green) line above the L / X (red) one.
     var spy = sy + (c ? -RB / 2 : RB / 2);
     G.pr.lane[c] = 'V' + (fb + 6);
     G.pr.laneHead[c] = up(lx[c], fb + 1);
@@ -1688,7 +1688,7 @@ function phoneRoutes(Z) {
     G.pr.inP[c] = 'M' + (sd[0] + sd[2]) + ' ' + (iy + (c ? RB / 2 : -RB / 2)) + 'H' + (fx[0] - 6);
     G.pr.inHeads[c] = right(fx[0] - 1, iy + (c ? RB / 2 : -RB / 2));
   });
-  // Source -> Osc 1 (the OSC source): a cyan over red pair level with Osc 1's wave screen, into its left edge.
+  // Source -> Osc 1 (the OSC source): a green over red pair level with Osc 1's wave screen, into its left edge.
   var o1 = O[0];
   G.pr.oscIn = []; G.pr.oscInHead = [];
   [0, 1].forEach(function (c) {
