@@ -1860,7 +1860,8 @@ function glowLayer(W, H) {
   glowX.setTransform(gw / W, 0, 0, gh / H, 0, 0);
   return glowX;
 }
-// The original's renderer: persistence fade (with Hold), grid, then the trace in Trace Hue.
+// The original's renderer: persistence fade (with Hold), grid, then the trace in Trace Hue. In Wave mode the two traces
+// are forced to their channel hues instead (X / L red, Y / R green: SCH_XY), whatever Hue and Hue Spd are set to.
 function drawScope(dt) {
   var c = sx, W = scope.width, H = scope.height, k = W / 900, st = state, SN1 = E.SN - 1, i, n;
   dt = dt || 1 / 60;
@@ -1873,8 +1874,8 @@ function drawScope(dt) {
     c.strokeStyle = 'rgba(207,171,246,0.16)'; c.beginPath(); c.moveTo(W / 2, 0); c.lineTo(W / 2, H); c.moveTo(0, H / 2); c.lineTo(W, H / 2); c.stroke();
   }
   var hue = ((st.hue + st.hueSpeed * realT) % 360 + 360) % 360, lw = st.lineWidth, wf = (lw - 0.5) / 14.5;   // thicker traces are dimmer, as in the original
-  var col = 'hsla(' + hue.toFixed(1) + ',90%,60%,' + (1 - 0.5 * wf).toFixed(3) + ')';
-  var path = new Path2D(), pts = 0;
+  var alpha = (1 - 0.5 * wf).toFixed(3), beam = function (h) { return 'hsla(' + h.toFixed(1) + ',90%,60%,' + alpha + ')'; };
+  var path = new Path2D(), pts = 0, strokes = [[path, beam(hue)]];
   if (st.mode === 'xy') {
     var lag = A.running ? 2048 : 0;
     scopeCur += E.sr * dt;
@@ -1892,9 +1893,10 @@ function drawScope(dt) {
   } else {
     var mt = st.masterTime * st.masterTimeFast;
     scopeDrawn = scopeCur = E.total;
+    strokes = [[new Path2D(), beam(SCH_XY.x)], [new Path2D(), beam(SCH_XY.y)]];
     [[E.sL, st.osc[0].freq * mt, H / 4], [E.sR, st.osc[3].freq * mt, 3 * H / 4]].forEach(function (chn, ch) {
       var period = E.sr / Math.max(1, chn[1]), win = Math.max(2, Math.min(12000, Math.round(7 * period))), margin = Math.min(4000, Math.ceil(period) + 1);
-      var src = chn[0], amp = st.gain * (H / 4) * 0.9, t, v, ws = waveSync[ch], last = E.total - win;
+      var src = chn[0], amp = st.gain * (H / 4) * 0.9, t, v, ws = waveSync[ch], last = E.total - win, path = strokes[ch][0];
       // Phase lock: between re-syncs the window steps by whole periods of the tone, so a steady tone stands still;
       // the zero-crossing search runs only every WAVE_RESYNC seconds, or when the window no longer fits (it grew, or the
       // engine restarted).
@@ -1921,12 +1923,12 @@ function drawScope(dt) {
   c.globalCompositeOperation = 'lighter'; c.lineJoin = 'round'; c.lineCap = 'round';
   if (st.glow) {
     var g = glowLayer(W, H);
-    g.filter = 'blur(' + (7 * k / 4).toFixed(2) + 'px)'; g.strokeStyle = col; g.lineWidth = lw * k; g.lineJoin = 'round'; g.lineCap = 'round';
-    g.stroke(path); g.filter = 'none';
+    g.filter = 'blur(' + (7 * k / 4).toFixed(2) + 'px)'; g.lineWidth = lw * k; g.lineJoin = 'round'; g.lineCap = 'round';
+    strokes.forEach(function (sp) { g.strokeStyle = sp[1]; g.stroke(sp[0]); }); g.filter = 'none';
     c.drawImage(glowC, 0, 0, W, H);
   }
-  c.strokeStyle = col; c.lineWidth = lw * k;
-  c.stroke(path);
+  c.lineWidth = lw * k;
+  strokes.forEach(function (sp) { c.strokeStyle = sp[1]; c.stroke(sp[0]); });
   c.globalCompositeOperation = 'source-over';
 }
 
