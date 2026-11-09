@@ -231,6 +231,10 @@ function coef(type, f, q, sr) {
   return { b0: b0 / a0, b1: b1 / a0, b2: b2 / a0, a1: -2 * cs / a0, a2: (1 - al) / a0 };
 }
 function biq(s, c, x) { var y = c.b0 * x + c.b1 * s.x1 + c.b2 * s.x2 - c.a1 * s.y1 - c.a2 * s.y2; s.x2 = s.x1; s.x1 = x; s.y2 = s.y1; s.y1 = y; return y; }
+// Speed tracking: with the oscillators as the source, Speed (Time x Fast) scales the Filter and Band Pass frequencies and
+// the Persist time, so a slowed or sped-up figure keeps its shape and trail. The knobs keep their 1x values. External
+// sources (Mic, Line, File) are not changed by Speed, so nothing follows it then.
+function speedTrack() { return state.src === 'tone' ? state.masterTime * state.masterTimeFast : 1; }
 function filterSpec(amt) {
   if (amt < -0.001) return ['lowpass', 20000 * Math.pow(20 / 20000, Math.min(1, -amt))];
   if (amt > 0.001) return ['highpass', 20 * Math.pow(20000 / 20, Math.min(1, amt))];
@@ -262,10 +266,11 @@ var E = {
         prev = f;
       }
     }
-    var offX = st.osc[0].phase, offY = st.osc[3].phase, spX = st.osc[0].speed * mt, spY = st.osc[3].speed * mt;
-    // Effects coefficients.
-    var fx = st.fx, by = fx.byp, fspec = filterSpec(fx.filterAmount);
-    var fc = coef(fspec[0], fspec[1], 0.9, sr), bc = coef('bandpass', fx.bandpassFreq, 5, sr);
+    // Spin follows Speed and Master Detune (at Detune 0 the figure stands still).
+    var offX = st.osc[0].phase, offY = st.osc[3].phase, spX = st.osc[0].speed * mt * md, spY = st.osc[3].speed * mt * md;
+    // Effects coefficients. With the oscillators as the source, the Filter and Band Pass frequencies follow Speed.
+    var fx = st.fx, by = fx.byp, fspec = filterSpec(fx.filterAmount), trk = speedTrack();
+    var fc = coef(fspec[0], fspec[1] * trk, 0.9, sr), bc = coef('bandpass', fx.bandpassFreq * trk, 5, sr);
     var sat = by.saturation ? 0 : fx.saturation, drive = 1 + (sat / 100) * 14, smix = sat / 100;
     var nv = by.chorus ? 0 : Math.round(fx.chorusVoices), vg = nv ? 1 / Math.sqrt(nv) : 0, cn = this.cb[0].length;
     var SN1 = this.SN - 1;
@@ -869,13 +874,13 @@ function buildFX(m, stack) {
     ui.byp.push(key(cx - bw / 2, cy + 46, bw, 20, 'Bypass', 'on', { tint: 'blue', fs: 8, onClick: function () { state.fx.byp[d[2]] = !state.fx.byp[d[2]]; syncByp(); drawFx(); } }));
   });
   if (stack) {
-    MASTERDEF.forEach(function (d, k) { knob(x + 16 + fw * (k + 0.5) / 3, cy + 101, 22, d[0], Sg, d[1], PD[d[1]], { fs: 8 }); });
+    MASTERDEF.forEach(function (d, k) { knob(x + 16 + fw * (k + 0.5) / 3, cy + 101, 22, d[0], Sg, d[1], PD[d[1]], { fs: 8, after: drawFx }); });
     return;
   }
   el('div', at(x + 16 + fw + 6, y + 18, 1, h - 36) + ';background:' + P.inkMute + ';opacity:0.5');
   var mc = x + w - 16 - mw / 2, dx = Math.min(36, mw / 4);
   famLabel(cl(mc, y + 18, mw, 'Master', PRINT(8)));
-  MASTERDEF.forEach(function (d, k) { knob(k > 1 ? mc : mc + (k % 2 ? dx : -dx), y + 64 + Math.floor(k / 2) * 64, 22, d[0], Sg, d[1], PD[d[1]], { fs: 8 }); });
+  MASTERDEF.forEach(function (d, k) { knob(k > 1 ? mc : mc + (k % 2 ? dx : -dx), y + 64 + Math.floor(k / 2) * 64, 22, d[0], Sg, d[1], PD[d[1]], { fs: 8, after: drawFx }); });
 }
 // Tinted keys. Blue follows the original's Bypass colours (Bypass, Mute, Freeze, Hold); red is the transport (Play, Stop, Rec).
 var TINT = {
@@ -892,8 +897,8 @@ function syncByp() {
 // Magnitude response of the Filter and Band Pass stages (log frequency, 20 Hz to 20 kHz).
 function drawFx() {
   if (!ui.fxScreen) return;   // the phone layout has no response screen
-  var f = state.fx, sr = E.sr || 48000;
-  var fs = filterSpec(f.filterAmount), fc = coef(fs[0], fs[1], 0.9, sr), bc = coef('bandpass', f.bandpassFreq, 5, sr);
+  var f = state.fx, sr = E.sr || 48000, trk = speedTrack();
+  var fs = filterSpec(f.filterAmount), fc = coef(fs[0], fs[1] * trk, 0.9, sr), bc = coef('bandpass', f.bandpassFreq * trk, 5, sr);
   var mag = function (c, hz) {
     var w = TAU * hz / sr, cr = Math.cos(w), ci = -Math.sin(w), c2r = Math.cos(2 * w), c2i = -Math.sin(2 * w);
     var nr = c.b0 + c.b1 * cr + c.b2 * c2r, ni = c.b1 * ci + c.b2 * c2i, dr = 1 + c.a1 * cr + c.a2 * c2r, di = c.a1 * ci + c.a2 * c2i;
@@ -966,7 +971,7 @@ function drawPresets() {
 }
 // The wave screen shows two cycles. On Osc 1 and 4 it follows Phase and rolls at Spin (degrees per second, with the
 // display clock), so the screen shows what those knobs do; animateWaves redraws it when either changes.
-function wavePhase(i) { var o = state.osc[i]; return i % 3 ? 0 : ((o.phase + o.speed * realT) % 360 + 360) % 360; }
+function wavePhase(i) { var o = state.osc[i]; return i % 3 ? 0 : ((o.phase + o.speed * state.masterDetune * realT) % 360 + 360) % 360; }
 function drawWave(i) {
   var w = state.osc[i].wave, g = ui.osc[i].g, ph = wavePhase(i) / 360;
   ui.osc[i].drawn = w + '|' + ph.toFixed(4);
@@ -1222,8 +1227,8 @@ function gapOf(g, Z, across) {
   switch (g) {
     case 'win': return across ? Z.hg : Z.vg;
     case 'fm': return Z.fm + 4;
-    case 'rt': return across ? Math.max(14, Z.hg) : Math.max(14, Z.vg);
-    case 'corr': return 3 * RB + 6;
+    case 'rt': return across ? Math.max(10, Z.hg) : Math.max(14, Z.vg);
+    case 'corr': return 3 * RB + 2;
     case 'lanes': return Math.ceil(Z.th / 2) + 8;   // above the oscillators: their nameplates and the arrowheads into Effects
     case 'pad': return Z.pad;
     default: return Z.rg;
@@ -1310,7 +1315,7 @@ var PL = {
     return {
       m: function (w, Z) {
         var lw = Math.max.apply(null, labels.map(function (t) { return keyW(t, Z.kfs); }));
-        return { h: rows * Z.kh + (rows - 1) * Z.rg, mw: per * Math.max(Z.kh * 1.1, lw + 8) + (per - 1) * 4, f: 0 };
+        return { h: rows * Z.kh + (rows - 1) * Z.rg, mw: per * Math.max(Z.kh * 1.1, lw + 7) + (per - 1) * 4, f: 0 };
       },
       d: function (x, y, w, h, Z) {
         var nh = rows * Z.kh + (rows - 1) * Z.rg, y0 = y + Math.max(0, (h - nh) / 2), kw = (w - (per - 1) * 4) / per;
@@ -1495,8 +1500,8 @@ function phLabel(t) {
   return { m: function (w, Z) { return { h: Z.lh + 2, mw: labW(t, Z.fs), f: 0 }; },
     d: function (x, y, w, h, Z) { famLabel(cl(x + w / 2, y + (h - Z.lh) / 2, w, t, PRINT(Z.fs) + ';line-height:' + Z.lh + 'px')); } };
 }
-// Oscillator window i, a 3 x 2 grid (see cells). The wave screen (tap for the next wave) sits outside, Pitch (Detune)
-// toward the corridor. On Osc 1 and 4 the Pitch label is a readout of the frequency; tapping it opens the keypad.
+// Oscillator window i (see body). The wave screen (tap for the next wave) sits outside, Pitch (Detune) toward the
+// corridor. On Osc 1 and 4 the Pitch label is a readout of the frequency; tapping it opens the keypad.
 function phOsc(i) {
   var O = function () { return state.osc[i]; }, main = i % 3 === 0, read = null, rat = null;
   var showHz = function () { if (read) read.textContent = Math.round(state.osc[i].freq) + ' Hz'; };
@@ -1521,11 +1526,11 @@ function phOsc(i) {
   // Osc 2, 3, 5, 6: the Mult / Div ratio as a fraction (Mult over Div) in a tall glass readout between the two knobs.
   var ratio = function (x, y, w, h, Z) {
     var r = el('div', at(x, y, w, h) + ';box-sizing:border-box;border-radius:3px;background:#050406;box-shadow:inset 0 1px 3px rgba(0,0,0,0.9);' +
-      'display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:' + Z.nfs + 'px;font-weight:700;line-height:1;' +
+      'display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:' + Z.fs + 'px;font-weight:700;line-height:1;' +
       'color:' + P.accent + ';text-shadow:0 0 5px ' + P.accentGlow);
     r.setAttribute('role', 'img');
     var n = el('span', '', r);
-    el('span', 'width:65%;height:1px;margin:' + Math.max(2, Math.round(Z.nfs * 0.3)) + 'px 0;background:currentColor;opacity:0.7', r);
+    el('span', 'width:65%;height:1px;margin:' + Math.max(2, Math.round(Z.fs * 0.3)) + 'px 0;background:currentColor;opacity:0.7', r);
     rat = { r: r, n: n, d: el('span', '', r) };
     showRat(); ui.syncers.push(showRat);
   };
@@ -1535,25 +1540,27 @@ function phOsc(i) {
     g.g.addEventListener('click', function () { var o = state.osc[i]; o.wave = (o.wave + 1) % WAVES.length; drawWave(i); drawRoutes(); });
     ui.osc[i] = ui.osc[i] || { k: [] }; ui.osc[i].g = g; ui.osc[i].gr = [x, y, w, h];
   };
-  // A 3 x 2 grid of equal cells: [col, row, item, index in ui.osc[i].k]. X: a short wave screen (one cell wide, as tall as
-  // a knob) | Gain | Pitch, then Phase | - | Spin (Mult | ratio | Div). Y mirrors the top row.
-  var cells = i < 3 ? [[0, 0, 'wave'], [1, 0, it.gain, 0], [2, 0, it.top, 1], [0, 1, it.a, 2], [2, 1, it.b, 3]]
-                    : [[0, 0, it.top, 1], [1, 0, it.gain, 0], [2, 0, 'wave'], [0, 1, it.a, 2], [2, 1, it.b, 3]];
-  if (!main) cells.push([1, 1, 'ratio']);
+  // Two rows. Bottom: Mult | ratio | Div squeezed together (Phase | Spin in the same places on Osc 1 and 4), then Gain
+  // on the corridor side. Top: the short wave screen centred over that group, Pitch (Detune) over Gain. Y mirrors X.
+  // RG: the gap between the ratio and the knobs' tick rings; GG: between the group and Gain (both at the minimum width).
+  var RG = 1, GG = 2, rwOf = function (Z) { return Math.round(knobW('13', Z.fs) + 3); };
+  var minW = function (Z) { return 3 * Z.S + 2 * RG + rwOf(Z) + GG + 4; };
   var body = {
-    m: function (w, Z) {
-      var lw = Math.max.apply(null, [it.top, it.gain, it.a, it.b].map(function (t) { return knobW(t[0], Z.nfs); }));
-      return { h: 2 * Z.KC + Z.rg, mw: 3 * (Math.max(Z.S, lw) + 4), f: 0 };
-    },
+    m: function (w, Z) { return { h: 2 * Z.KC + Z.rg, mw: minW(Z), f: 0 }; },
     d: function (x, y, w, h, Z) {
-      var cw = w / 3, y0 = y + Math.max(0, (h - 2 * Z.KC - Z.rg) / 2);
-      cells.forEach(function (c) {
-        var cx = x + cw * (c[0] + 0.5), ry = y0 + c[1] * (Z.KC + Z.rg);
-        if (c[2] === 'wave') { wave(cx - (cw - 4) / 2, ry, cw - 4, Z.S); return; }
-        if (c[2] === 'ratio') { var rw = Math.round(knobW('13', Z.nfs) + 10); ratio(cx - rw / 2, ry, rw, Z.S, Z); return; }
-        var t = withCb(c[2], c[3]), k = knob(cx, ry + Z.S / 2, Z.s, t[0], t[1], t[2], t[3], Object.assign({ fs: Z.nfs, tm: Z.tm, lm: 1, lh: Z.nlh }, t[4] || {}));
-        t[5](k, 0, cx, ry + Z.S / 2, cw, Z);
-      });
+      var y0 = y + Math.max(0, (h - 2 * Z.KC - Z.rg) / 2), y1 = y0 + Z.KC + Z.rg, rw = rwOf(Z);
+      var gw = Z.S + 2 + GG / 2 + Math.max(0, w - minW(Z)) * 0.35;   // Gain's column; the group is centred in the rest
+      var gx = i < 3 ? x + w - gw / 2 : x + gw / 2, cx = i < 3 ? x + (w - gw) / 2 : x + gw + (w - gw) / 2, sp = rw / 2 + RG + Z.S / 2;
+      var put = function (item, k, kx, ky) {
+        var t = withCb(item, k), n = knob(kx, ky + Z.S / 2, Z.s, t[0], t[1], t[2], t[3], Object.assign({ fs: Z.nfs, tm: Z.tm, lm: 1, lh: Z.nlh }, t[4] || {}));
+        t[5](n, 0, kx, ky + Z.S / 2, gw, Z);
+      };
+      wave(cx - Z.S / 2, y0, Z.S, Z.S);
+      put(it.top, 1, gx, y0);
+      put(it.a, 2, cx - sp, y1);
+      if (!main) ratio(cx - rw / 2, y1, rw, Z.S, Z);
+      put(it.b, 3, cx + sp, y1);
+      put(it.gain, 0, gx, y1);
     }
   };
   return PL.win(main ? 'Osc ' + (i + 1) + '  ' + (i < 3 ? 'X-L' : 'Y-R') : 'Osc ' + (i + 1), i < 3 ? 'x' : 'y', body, { osc: i });
@@ -1580,7 +1587,7 @@ function fitPhone(root, sp, H) {
   var lo = 6, hi = 48;
   if (!ok(lo)) return phoneSizes(lo, sp);
   while (hi - lo > 0.05) { var mid = (lo + hi) / 2; if (ok(mid)) lo = mid; else hi = mid; }
-  return phoneSizes(Math.floor(lo * 2) / 2, sp);
+  return phoneSizes(Math.floor(lo * 10) / 10, sp);
 }
 // Keypad: type an oscillator's frequency (20-500 Hz) on a 10-key pad. Enter sets it, Cancel / outside / Escape closes.
 var keypad = null;
@@ -1899,7 +1906,7 @@ function drawScope(dt) {
   var c = sx, W = scope.width, H = scope.height, D = Math.min(W, H), k = D / 900, st = state, SN1 = E.SN - 1, i, n;
   dt = dt || 1 / 60;
   c.globalCompositeOperation = 'source-over';
-  var survival = Math.pow(clamp(st.persistence), 1 / (st.hold + 1));
+  var survival = Math.pow(Math.pow(clamp(st.persistence), speedTrack()), 1 / (st.hold + 1));   // Persist time follows Speed
   c.fillStyle = 'rgba(5,4,6,' + Math.max(0, 1 - survival) + ')'; c.fillRect(0, 0, W, H);
   if (st.grid) {
     c.lineWidth = 1; c.strokeStyle = 'rgba(207,171,246,0.07)';
