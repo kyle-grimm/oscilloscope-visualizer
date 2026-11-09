@@ -1541,7 +1541,7 @@ function phOsc(i) {
     ui.osc[i] = ui.osc[i] || { k: [] }; ui.osc[i].g = g; ui.osc[i].gr = [x, y, w, h];
   };
   // Two rows. Bottom: Mult | ratio | Div squeezed together (Phase | Spin in the same places on Osc 1 and 4), then Gain
-  // on the corridor side. Top: the short wave screen centred over that group, Pitch (Detune) over Gain. Y mirrors X.
+  // on the corridor side. Top: the wave screen filling the row beside Pitch (Detune), which sits over Gain. Y mirrors X.
   // RG: the gap between the ratio and the knobs' tick rings; GG: between the group and Gain (both at the minimum width).
   var RG = 1, GG = 2, rwOf = function (Z) { return Math.round(knobW('13', Z.fs) + 3); };
   var minW = function (Z) { return 3 * Z.S + 2 * RG + rwOf(Z) + GG + 4; };
@@ -1555,7 +1555,9 @@ function phOsc(i) {
         var t = withCb(item, k), n = knob(kx, ky + Z.S / 2, Z.s, t[0], t[1], t[2], t[3], Object.assign({ fs: Z.nfs, tm: Z.tm, lm: 1, lh: Z.nlh }, t[4] || {}));
         t[5](n, 0, kx, ky + Z.S / 2, gw, Z);
       };
-      wave(cx - Z.S / 2, y0, Z.S, Z.S);
+      // The wave screen fills the top row beside Pitch (Detune): window edge to 3 px short of the knob's ring, knob + label tall.
+      var wx0 = i < 3 ? x : gx + Z.S / 2 + 3, wx1 = i < 3 ? gx - Z.S / 2 - 3 : x + w;
+      wave(wx0, y0, wx1 - wx0, Z.KC);
       put(it.top, 1, gx, y0);
       put(it.a, 2, cx - sp, y1);
       if (!main) ratio(cx - rw / 2, y1, rw, Z.S, Z);
